@@ -1,0 +1,60 @@
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+# │  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+# │  Copyright (c) 2026 Ivan Murzak                                           │
+# │  Licensed under the Apache License, Version 2.0.                          │
+# │  See the LICENSE file in the project root for more information.           │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+# Builds and pushes the multi-arch Docker image to Docker Hub
+# (aigamedeveloper/mcp-server). Mirrors the engine repos' deploy.yml
+# docker job. Triggered by a published release (version taken from the
+# release tag) or manually via workflow_dispatch.
+
+name: deploy-docker
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Deploy to Docker Hub version (e.g., 8.0.0)."
+        required: true
+        type: string
+
+jobs:
+  deploy-docker-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Extract version from input or release tag
+        id: version
+        run: |
+          version=${{ inputs.version || github.event.release.tag_name }}
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Extracted version: $version"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            aigamedeveloper/mcp-server:${{ steps.version.outputs.version }}
+            aigamedeveloper/mcp-server:latest
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
