@@ -2,7 +2,7 @@
 
 ## What this is
 
-Engine-agnostic C# ASP.NET Core MCP server shared by the Unity-MCP, Godot-MCP and Unreal-MCP engine plugins. Thin host (`src/Program.cs`) over the NuGet packages `com.IvanMurzak.McpPlugin.Server` + `com.IvanMurzak.ReflectorNet` — ALL real server logic lives in those packages; this repo contains no engine-specific code. Distributed as standalone executables (`gamedev-mcp-server-<rid>.zip`), a Docker image (`aigamedeveloper/mcp-server`), and a dotnet global tool.
+Engine-agnostic C# ASP.NET Core MCP server shared by the Unity-MCP, Godot-MCP and Unreal-MCP engine plugins. Thin host (`src/Program.cs`) over the NuGet packages `com.IvanMurzak.McpPlugin.Server` + `com.IvanMurzak.ReflectorNet` — ALL real server logic lives in those packages; this repo contains no engine-specific code. Distributed as standalone executables (`gamedev-mcp-server-<rid>.zip`) and a Docker image (`aigamedeveloper/mcp-server`). (A dotnet global tool channel is deliberately NOT published yet — deferred until an engine integration needs it.)
 
 **NOT AI-Game-Dev-Server (the ai-game.dev cloud LLM/billing proxy) — this is the local MCP stdio/http proxy host shared by the engine plugins.**
 

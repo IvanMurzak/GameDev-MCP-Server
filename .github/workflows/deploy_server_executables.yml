@@ -28,6 +28,13 @@ on:
   release:
     types: [published]
 
+# softprops/action-gh-release needs `contents: write` to attach assets to the
+# release. New repos default GITHUB_TOKEN to read-only, so this must be
+# explicit — without it the upload steps fail with "Resource not accessible
+# by integration".
+permissions:
+  contents: write
+
 jobs:
   # ────────────────────────────────────────────────────────────────────
   # macOS + Linux: osx-x64, osx-arm64 (signed + notarized), linux-x64,
