@@ -1,0 +1,40 @@
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+# │  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+# │  Copyright (c) 2026 Ivan Murzak                                           │
+# │  Licensed under the Apache License, Version 2.0.                          │
+# │  See the LICENSE file in the project root for more information.           │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+# Pull-request / main CI gate. Compiles the server against the pinned NuGet
+# packages and validates the Dockerfile builds. This is the required status
+# check for branch protection — PRs (and auto-merge) are blocked until it is
+# green.
+
+name: test-pull-request
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore com.IvanMurzak.GameDev.MCP.Server.csproj
+
+      - name: Build (Release)
+        run: dotnet build com.IvanMurzak.GameDev.MCP.Server.csproj -c Release --no-restore
+
+      - name: Validate Dockerfile (build image, no push)
+        run: docker build -t gamedev-mcp-server:ci .

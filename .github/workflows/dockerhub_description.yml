@@ -13,8 +13,11 @@
 # Docker image.
 #
 # NOTE: peter-evans/dockerhub-description updates the description via the Docker
-# Hub REST API. DOCKERHUB_TOKEN must be a PAT with description-write scope (or
-# the account password); a read-only token will 401 here.
+# Hub REST API. DOCKERHUB_TOKEN must be a PAT with description-write scope on an
+# account with admin rights to the repo (or the account password); otherwise the
+# PATCH returns 401/403. The sync step is best-effort (continue-on-error) so a
+# missing/under-scoped credential degrades to a warning instead of failing CI —
+# the overview simply won't update until the credential is fixed.
 
 name: dockerhub-description
 
@@ -35,6 +38,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Sync README to Docker Hub overview
+        continue-on-error: true # best-effort publish; never fail CI on a credential issue
         uses: peter-evans/dockerhub-description@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
