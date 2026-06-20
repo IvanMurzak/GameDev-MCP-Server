@@ -6,6 +6,7 @@
 [![Unreal](https://img.shields.io/badge/Unreal-Engine-0E1128?style=flat&logo=unrealengine&logoColor=white&labelColor=333A41 'Unreal-MCP plugin')](https://github.com/IvanMurzak/Unreal-MCP)
 [![Unity](https://img.shields.io/badge/Unity-Engine-000000?style=flat&logo=unity&logoColor=white&labelColor=333A41 'Unity-MCP plugin')](https://github.com/IvanMurzak/Unity-MCP)
 [![Godot](https://img.shields.io/badge/Godot-Engine-478CBF?style=flat&logo=godotengine&logoColor=white&labelColor=333A41 'Godot-MCP plugin')](https://github.com/IvanMurzak/Godot-MCP)</br>
+[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white&labelColor=333A41 'Join')](https://discord.gg/cfbdMZX99G)
 [![Stars](https://img.shields.io/github/stars/IvanMurzak/GameDev-MCP-Server 'Stars')](https://github.com/IvanMurzak/GameDev-MCP-Server/stargazers)
 [![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&labelColor=333A41)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
 [![Docker Image](https://img.shields.io/docker/image-size/aigamedeveloper/mcp-server/latest?label=Docker%20Image&logo=docker&logoColor=white&labelColor=333A41 'Docker Image')](https://hub.docker.com/r/aigamedeveloper/mcp-server)
