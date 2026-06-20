@@ -1,0 +1,45 @@
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+# │  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+# │  Copyright (c) 2026 Ivan Murzak                                           │
+# │  Licensed under the Apache License, Version 2.0.                          │
+# │  See the LICENSE file in the project root for more information.           │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+# Syncs README.md to the Docker Hub repository "Overview" + short description
+# for aigamedeveloper/mcp-server. Runs whenever the README (or its images)
+# change on main, or on demand. Deliberately DECOUPLED from the image build
+# (deploy_docker.yml) so a docs-only change never rebuilds or republishes the
+# Docker image.
+#
+# NOTE: peter-evans/dockerhub-description updates the description via the Docker
+# Hub REST API. DOCKERHUB_TOKEN must be a PAT with description-write scope (or
+# the account password); a read-only token will 401 here.
+
+name: dockerhub-description
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - docs/img/**
+      - .github/workflows/dockerhub_description.yml
+  workflow_dispatch:
+
+jobs:
+  update-dockerhub-description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Sync README to Docker Hub overview
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: aigamedeveloper/mcp-server
+          short-description: "Engine-agnostic MCP server for the Unity, Godot & Unreal MCP plugins (Model Context Protocol)"
+          readme-filepath: ./README.md
+          enable-url-completion: true
