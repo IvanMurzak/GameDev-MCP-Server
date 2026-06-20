@@ -1,12 +1,31 @@
-# GameDev MCP Server
+<div align="center" width="100%">
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+  <h1>✨ AI Game Developer — <i>GameDev MCP Server</i></h1>
+
+[![MCP](https://badge.mcpx.dev 'MCP Server')](https://modelcontextprotocol.io/introduction)
+[![Unreal](https://img.shields.io/badge/Unreal-MCP-0E1128?style=flat&logo=unrealengine&logoColor=white&labelColor=333A41 'Unreal-MCP plugin')](https://github.com/IvanMurzak/Unreal-MCP)
+[![Unity](https://img.shields.io/badge/Unity-MCP-000000?style=flat&logo=unity&logoColor=white&labelColor=333A41 'Unity-MCP plugin')](https://github.com/IvanMurzak/Unity-MCP)
+[![Godot](https://img.shields.io/badge/Godot-MCP-478CBF?style=flat&logo=godotengine&logoColor=white&labelColor=333A41 'Godot-MCP plugin')](https://github.com/IvanMurzak/Godot-MCP)</br>
+[![Stars](https://img.shields.io/github/stars/IvanMurzak/GameDev-MCP-Server 'Stars')](https://github.com/IvanMurzak/GameDev-MCP-Server/stargazers)
+[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&labelColor=333A41)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
+[![Repository](https://img.shields.io/badge/Repository-GitHub-181717?style=flat&logo=github&logoColor=white&labelColor=333A41 'GitHub repository')](https://github.com/IvanMurzak/GameDev-MCP-Server)
+[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
+
+  <img src="https://github.com/IvanMurzak/GameDev-MCP-Server/raw/main/docs/img/ai-developer-banner.jpg" alt="AI Game Developer" title="AI Game Developer" width="100%">
+
+</div>
 
 Engine-agnostic [Model Context Protocol](https://modelcontextprotocol.io/) server shared by the game-engine MCP plugins:
 
 - [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) — Unity Editor & games
 - [Godot-MCP](https://github.com/IvanMurzak/Godot-MCP) — Godot Editor & games
 - [Unreal-MCP](https://github.com/IvanMurzak/Unreal-MCP) — Unreal Editor & games
+
+<div align="center" width="100%">
+
+  <img src="https://github.com/IvanMurzak/GameDev-MCP-Server/raw/main/docs/img/docker-launch.gif" alt="Launching gamedev-mcp-server in Docker" title="Launching gamedev-mcp-server in Docker" width="100%">
+
+</div>
 
 It is a thin host over the NuGet packages [`com.IvanMurzak.McpPlugin.Server`](https://www.nuget.org/packages/com.IvanMurzak.McpPlugin.Server) and [`com.IvanMurzak.ReflectorNet`](https://www.nuget.org/packages/com.IvanMurzak.ReflectorNet), where all the real server logic lives. The server bridges MCP clients (Claude, Cursor, Copilot, …) and an engine plugin over SignalR:
 
