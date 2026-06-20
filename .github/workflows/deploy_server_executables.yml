@@ -21,12 +21,31 @@
 #                          plus linux-x64, linux-arm64 (unsigned, cross-built).
 #   - windows-latest job -> win-x64, win-x86, win-arm64 (Azure Trusted Signing).
 # signtool cannot run on macOS, so the Windows RIDs need their own runner.
+#
+# Integrity: after all 7 zips are attached to the release, the publish-checksums
+# job downloads them, computes a plain (UNSIGNED) SHA256SUMS manifest, and
+# attaches it to the SAME release. Downloaders (Unity/Godot/Unreal CLIs + the
+# ai-game.dev cloud) fetch SHA256SUMS and verify each zip's digest before use.
+# The manual `workflow_dispatch` (input `tag`) BACKFILLS SHA256SUMS onto an
+# already-published release WITHOUT rebuilding or re-signing any binaries — the
+# build/sign/upload jobs are skipped on dispatch; only checksums are computed
+# from the existing release assets.
 
 name: deploy-server-executables
 
 on:
   release:
     types: [published]
+  # Manual backfill: attach SHA256SUMS to an EXISTING release (e.g. v8.0.0)
+  # without rebuilding/re-signing. The build jobs are gated to release events
+  # (see their `if:`), so a dispatch run does NOT rebuild — it only runs
+  # publish-checksums against the assets already on the given tag's release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to backfill SHA256SUMS onto (e.g. v8.0.0)"
+        required: true
+        type: string
 
 # softprops/action-gh-release needs `contents: write` to attach assets to the
 # release. New repos default GITHUB_TOKEN to read-only, so this must be
@@ -42,6 +61,11 @@ jobs:
   # linux RIDs fine.
   # ────────────────────────────────────────────────────────────────────
   build-macos-linux:
+    # Build/sign only on a published release. On manual workflow_dispatch this
+    # job is SKIPPED so the backfill path never rebuilds or re-signs binaries —
+    # publish-checksums (if: always()) then runs against the existing release
+    # assets only.
+    if: ${{ github.event_name == 'release' }}
     runs-on: macos-latest
     # Job-level env so the signing/notarization guards (`if: env.X != ''`) can
     # read these. A step's own `env:` block is NOT visible to that same step's
@@ -182,6 +206,10 @@ jobs:
   # (signtool is Windows-only). Built on windows-latest via build-all.ps1.
   # ────────────────────────────────────────────────────────────────────
   build-windows:
+    # Build/sign only on a published release; SKIPPED on manual
+    # workflow_dispatch so the SHA256SUMS backfill never rebuilds/re-signs the
+    # Windows binaries. See build-macos-linux's `if:` for the full rationale.
+    if: ${{ github.event_name == 'release' }}
     runs-on: windows-latest
     # Job-level env so the Azure Trusted Signing guard (`if: env.AZURE_CLIENT_ID
     # != ''`) can read it — a step's own `env:` is not visible to that step's
@@ -244,5 +272,115 @@ jobs:
         with:
           files: ./publish/*.zip
           tag_name: ${{ github.event.release.tag_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ────────────────────────────────────────────────────────────────────
+  # Integrity manifest: compute a plain (UNSIGNED) SHA256SUMS over all 7
+  # release zips and attach it to the SAME release. NO signature / cosign /
+  # minisign — a bare sha256sum manifest the downloaders parse line-by-line.
+  #
+  # Dual trigger:
+  #   - release    -> runs AFTER both build jobs upload their zips
+  #                   (needs:), tag = github.event.release.tag_name.
+  #   - dispatch   -> the build jobs are SKIPPED (their `if:` gates them to
+  #                   release events); `if: always()` lets this job run anyway
+  #                   to BACKFILL SHA256SUMS onto an existing release without
+  #                   any rebuild/re-sign. tag = inputs.tag.
+  #
+  # The `needs:` only orders this job AFTER the build jobs on a real release;
+  # because each need is allowed to be skipped, the guard below explicitly
+  # fails the release path if a build job did NOT succeed (so a half-uploaded
+  # release never gets a partial SHA256SUMS). On dispatch the skipped builds
+  # are expected and ignored.
+  # ────────────────────────────────────────────────────────────────────
+  publish-checksums:
+    needs: [build-macos-linux, build-windows]
+    if: ${{ always() && (github.event_name == 'release' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # On a release, both build jobs must have succeeded before we publish a
+      # manifest — otherwise SHA256SUMS could cover an incomplete asset set.
+      # On dispatch the builds are skipped by design, so this guard only
+      # applies to the release trigger.
+      - name: Verify build jobs succeeded (release only)
+        if: ${{ github.event_name == 'release' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.build-macos-linux.result }}" != "success" ] || \
+             [ "${{ needs.build-windows.result }}" != "success" ]; then
+            echo "::error::A build job did not succeed (macos-linux=${{ needs.build-macos-linux.result }}, windows=${{ needs.build-windows.result }}); refusing to publish a partial SHA256SUMS."
+            exit 1
+          fi
+
+      # Resolve the target tag from whichever trigger fired:
+      #   release  -> github.event.release.tag_name
+      #   dispatch -> the `tag` input (e.g. v8.0.0)
+      - name: Resolve release tag
+        id: tag
+        env:
+          # Pass the untrusted dispatch input via env so it is never
+          # interpolated into the shell as code (injection hardening). The
+          # release tag is GitHub-controlled and already safe, but is passed
+          # the same way for symmetry.
+          TAG_INPUT: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="$TAG_INPUT"
+          else
+            TAG="$RELEASE_TAG"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "::error::Could not resolve a release tag to attach SHA256SUMS to."
+            exit 1
+          fi
+          echo "Resolved release tag: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      # Download exactly the 7 server zips already attached to the release.
+      # Works identically for the release path (zips just uploaded by the build
+      # jobs) and the backfill path (zips uploaded by a previous release run).
+      - name: Download release zips
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p checksums
+          gh release download "${{ steps.tag.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --pattern 'gamedev-mcp-server-*.zip' \
+            --dir checksums
+          echo "Downloaded assets:"
+          ls -la checksums
+
+      # Plain SHA256SUMS in the STANDARD coreutils text format:
+      #   <64-lowercase-hex><space><space><filename>
+      # `--text` forces text mode so the two-space separator is emitted on every
+      # platform (ubuntu defaults to text already; this is belt-and-suspenders).
+      # `sort -k2` orders deterministically by filename so the manifest is stable
+      # regardless of glob/download order.
+      - name: Compute SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd checksums
+          sha256sum --text gamedev-mcp-server-*.zip | sort -k2 > SHA256SUMS
+          echo "=== SHA256SUMS ==="
+          cat SHA256SUMS
+          echo "=== self-check ==="
+          sha256sum -c SHA256SUMS
+
+      - name: Upload SHA256SUMS to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: checksums/SHA256SUMS
+          tag_name: ${{ steps.tag.outputs.tag }}
+          # Never re-flip the "Latest" badge when backfilling SHA256SUMS onto an
+          # older release via workflow_dispatch (harmless today since v8.0.0 is
+          # newest, but correct for future backfills).
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
