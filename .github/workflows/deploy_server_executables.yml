@@ -320,12 +320,19 @@ jobs:
       #   dispatch -> the `tag` input (e.g. v8.0.0)
       - name: Resolve release tag
         id: tag
+        env:
+          # Pass the untrusted dispatch input via env so it is never
+          # interpolated into the shell as code (injection hardening). The
+          # release tag is GitHub-controlled and already safe, but is passed
+          # the same way for symmetry.
+          TAG_INPUT: ${{ inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ inputs.tag }}"
+            TAG="$TAG_INPUT"
           else
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="$RELEASE_TAG"
           fi
           if [ -z "$TAG" ]; then
             echo "::error::Could not resolve a release tag to attach SHA256SUMS to."
@@ -371,5 +378,9 @@ jobs:
         with:
           files: checksums/SHA256SUMS
           tag_name: ${{ steps.tag.outputs.tag }}
+          # Never re-flip the "Latest" badge when backfilling SHA256SUMS onto an
+          # older release via workflow_dispatch (harmless today since v8.0.0 is
+          # newest, but correct for future backfills).
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
