@@ -58,3 +58,25 @@ jobs:
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Syncs README.md to the Docker Hub repository "Overview" (and short
+  # description). Runs independently of the image build so a description-sync
+  # hiccup never fails the image release, and vice versa.
+  # NOTE: peter-evans/dockerhub-description updates the description via the
+  # Docker Hub REST API. DOCKERHUB_TOKEN must be a PAT with write scope (or the
+  # account password); a read-only token will 401 here.
+  update-dockerhub-description:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Sync README to Docker Hub overview
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: aigamedeveloper/mcp-server
+          short-description: "Engine-agnostic MCP server for the Unity, Godot & Unreal MCP plugins (Model Context Protocol)"
+          readme-filepath: ./README.md
+          enable-url-completion: true
