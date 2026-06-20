@@ -34,9 +34,11 @@ jobs:
       - name: Extract version from input or release tag
         id: version
         run: |
-          version=${{ inputs.version || github.event.release.tag_name }}
+          raw="${{ inputs.version || github.event.release.tag_name }}"
+          # Release tags are v-prefixed (v8.0.1) but the image tag is not (8.0.1).
+          version="${raw#v}"
           echo "version=$version" >> $GITHUB_OUTPUT
-          echo "Extracted version: $version"
+          echo "Extracted version: $version (from $raw)"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
