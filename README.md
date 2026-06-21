@@ -97,7 +97,7 @@ dotnet build com.IvanMurzak.GameDev.MCP.Server.csproj
 dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transport stdio --port 8080
 ```
 
-Cross-platform self-contained executables for all 7 RIDs: `./build-all.sh` (bash) or `./build-all.ps1` (PowerShell). Outputs land in `publish/<rid>/` and are zipped as `gamedev-mcp-server-<rid>.zip` (skip zipping with `--no-zip` / `-NoZip`).
+Cross-platform self-contained executables for all 7 RIDs: `./build/build-all.sh` (bash) or `./build/build-all.ps1` (PowerShell). Outputs land in `publish/<rid>/` and are zipped as `gamedev-mcp-server-<rid>.zip` (skip zipping with `--no-zip` / `-NoZip`).
 
 ## Configuration
 

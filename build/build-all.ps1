@@ -13,8 +13,16 @@ param(
 
 Write-Host "Building self-contained executables..." -ForegroundColor Green
 
-# Root output directory (relative to this script location)
-$PublishRoot = Join-Path $PSScriptRoot "publish"
+# This script lives in build/; the project + publish output are at the repo root,
+# one level up. Anchor both to $RepoRoot so the script works regardless of the
+# caller's working directory (CI invokes it as ./build/build-all.ps1 from root).
+$RepoRoot = Split-Path -Parent $PSScriptRoot
+if (-not [System.IO.Path]::IsPathRooted($ProjectFile)) {
+    $ProjectFile = Join-Path $RepoRoot $ProjectFile
+}
+
+# Root output directory (at the repo root, alongside the project)
+$PublishRoot = Join-Path $RepoRoot "publish"
 if (Test-Path $PublishRoot) {
     Write-Host "Cleaning existing publish folder..." -ForegroundColor Cyan
     try {

@@ -88,12 +88,12 @@ jobs:
           dotnet-version: "9.0.x"
 
       - name: Make build script executable
-        run: chmod +x ./build-all.sh
+        run: chmod +x ./build/build-all.sh
 
       - name: Build executables (osx + linux, no zip yet)
         shell: bash {0}
         run: |
-          ./build-all.sh Release --no-zip osx-x64 osx-arm64 linux-x64 linux-arm64
+          ./build/build-all.sh Release --no-zip osx-x64 osx-arm64 linux-x64 linux-arm64
 
       # Import the Developer ID Application certificate into a temporary
       # keychain. Guarded on ALL THREE mac signing secrets so a partial-secrets
@@ -203,7 +203,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────
   # Windows: win-x64, win-x86, win-arm64. Signed with Azure Trusted Signing
-  # (signtool is Windows-only). Built on windows-latest via build-all.ps1.
+  # (signtool is Windows-only). Built on windows-latest via build/build-all.ps1.
   # ────────────────────────────────────────────────────────────────────
   build-windows:
     # Build/sign only on a published release; SKIPPED on manual
@@ -230,7 +230,7 @@ jobs:
       - name: Build executables (win, no zip yet)
         shell: pwsh
         run: |
-          ./build-all.ps1 -Configuration Release -NoZip -Platforms win-x64,win-x86,win-arm64
+          ./build/build-all.ps1 -Configuration Release -NoZip -Platforms win-x64,win-x86,win-arm64
 
       # Sign every .exe under the publish dir via Azure Trusted Signing.
       # Guarded: the step is skipped when AZURE_CLIENT_ID is empty, leaving the

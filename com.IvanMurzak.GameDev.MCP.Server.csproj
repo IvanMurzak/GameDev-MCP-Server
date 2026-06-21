@@ -67,10 +67,16 @@
     <PackageReference Include="R3" Version="1.3.0" />
   </ItemGroup>
 
-  <!-- Include package files -->
+  <!--
+    Include package files. The NuGet readme is a dedicated, plain-markdown file
+    (docs/NUGET.md) packed as README.md — the GitHub root README.md is heavy HTML
+    (centered divs, raw <img> banners, logo rows) that NuGet's markdown sanitizer
+    mangles into run-together text. Keep docs/NUGET.md in sync when release facts
+    (versions, compatibility table) change.
+  -->
   <ItemGroup>
     <None Include="LICENSE" Pack="true" PackagePath="" />
-    <None Include="README.md" Pack="true" PackagePath="" />
+    <None Include="docs/NUGET.md" Pack="true" PackagePath="README.md" />
   </ItemGroup>
 
   <!-- Exclude the local publish output folder so successive publishes don't recursively include previous outputs -->

@@ -62,7 +62,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-PUBLISH_ROOT="${SCRIPT_DIR}/publish"
+# This script lives in build/; the project + publish output are at the repo root,
+# one level up. Anchor both to REPO_ROOT so the script works regardless of the
+# caller's working directory (CI invokes it as ./build/build-all.sh from root).
+REPO_ROOT="$( cd -- "${SCRIPT_DIR}/.." &> /dev/null && pwd )"
+PUBLISH_ROOT="${REPO_ROOT}/publish"
+# Resolve a relative project file against the repo root (absolute paths untouched).
+case "${PROJECT_FILE}" in
+    /*) ;;
+    *)  PROJECT_FILE="${REPO_ROOT}/${PROJECT_FILE}" ;;
+esac
 
 echo "Building self-contained executables..."
 
