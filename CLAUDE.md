@@ -2,7 +2,7 @@
 
 ## What this is
 
-Engine-agnostic C# ASP.NET Core MCP server shared by the Unity-MCP, Godot-MCP and Unreal-MCP engine plugins. Thin host (`src/Program.cs`) over the NuGet packages `com.IvanMurzak.McpPlugin.Server` + `com.IvanMurzak.ReflectorNet` — ALL real server logic lives in those packages; this repo contains no engine-specific code. Distributed as standalone executables (`gamedev-mcp-server-<rid>.zip`) and a Docker image (`aigamedeveloper/mcp-server`). (A dotnet global tool channel is deliberately NOT published yet — deferred until an engine integration needs it.)
+Engine-agnostic C# ASP.NET Core MCP server shared by the Unity-MCP, Godot-MCP and Unreal-MCP engine plugins. Thin host (`src/Program.cs`) over the NuGet packages `com.IvanMurzak.McpPlugin.Server` + `com.IvanMurzak.ReflectorNet` — ALL real server logic lives in those packages; this repo contains no engine-specific code. Distributed as standalone executables (`gamedev-mcp-server-<rid>.zip`), a Docker image (`aigamedeveloper/mcp-server`), and a global dotnet tool on NuGet (`com.IvanMurzak.GameDev.MCP.Server`, command `gamedev-mcp-server`).
 
 **NOT AI-Game-Dev-Server (the ai-game.dev cloud LLM/billing proxy) — this is the local MCP stdio/http proxy host shared by the engine plugins.**
 
@@ -21,3 +21,4 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 - `<Version>` in the csproj + `server.json` move together. Keep the McpPlugin.Server / ReflectorNet pins in lockstep with the engine plugins (see the Compatibility table in README.md).
 - `.github/workflows/deploy_server_executables.yml` (release-published trigger) builds, code-signs (Azure Trusted Signing on Windows, codesign+notarytool on macOS — gracefully degrading when secrets are absent) and uploads the 7 zips.
 - `.github/workflows/deploy_docker.yml` pushes `aigamedeveloper/mcp-server:<version>` + `:latest` (secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`).
+- `.github/workflows/deploy_nuget.yml` (release-published trigger) packs the global dotnet tool and pushes `com.IvanMurzak.GameDev.MCP.Server` to NuGet via Trusted Publishing (OIDC, `NuGet/login@v1` as `IvanMurzak` — no stored API key). All three deploy workflows fire on the same published release, so the NuGet tool, Docker image, and zips ship together. **One-time setup**: the package id (or its `com.IvanMurzak.*` reserved prefix) needs a NuGet.org Trusted Publishing policy bound to `IvanMurzak/GameDev-MCP-Server` before the first release, exactly as the sibling library repos have.
