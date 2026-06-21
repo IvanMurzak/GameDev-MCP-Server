@@ -2,6 +2,7 @@
 
   <h1>✨ AI Game Developer — <i>GameDev MCP Server</i></h1>
 
+[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&labelColor=333A41)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/)
 [![MCP](https://badge.mcpx.dev 'MCP Server')](https://modelcontextprotocol.io/introduction)
 [![Unreal](https://img.shields.io/badge/Unreal-Engine-0E1128?style=flat&logo=unrealengine&logoColor=white&labelColor=333A41 'Unreal-MCP plugin')](https://github.com/IvanMurzak/Unreal-MCP)
 [![Unity](https://img.shields.io/badge/Unity-Engine-000000?style=flat&logo=unity&logoColor=white&labelColor=333A41 'Unity-MCP plugin')](https://github.com/IvanMurzak/Unity-MCP)
