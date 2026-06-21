@@ -1,0 +1,77 @@
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+# │  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+# │  Copyright (c) 2026 Ivan Murzak                                           │
+# │  Licensed under the Apache License, Version 2.0.                          │
+# │  See the LICENSE file in the project root for more information.           │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+# Packs and pushes the server as a global dotnet tool to NuGet
+# (com.IvanMurzak.GameDev.MCP.Server, command `gamedev-mcp-server`). Mirrors the
+# engine/library repos' deploy.yml NuGet job (Trusted Publishing, no stored API
+# key). Triggered by a published release (version taken from the release tag) or
+# manually via workflow_dispatch — same trigger as deploy_docker.yml /
+# deploy_server_executables.yml, so all three release channels ship together.
+
+name: deploy-nuget
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Deploy to NuGet version (e.g., 8.0.1)."
+        required: true
+        type: string
+
+jobs:
+  deploy-to-nuget:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # required for NuGet Trusted Publishing (OIDC)
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Extract version from input or release tag
+        id: version
+        run: |
+          raw="${{ inputs.version || github.event.release.tag_name }}"
+          # Release tags are v-prefixed (v8.0.1) but the package version is not (8.0.1).
+          version="${raw#v}"
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Extracted version: $version (from $raw)"
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore com.IvanMurzak.GameDev.MCP.Server.csproj
+
+      - name: Build (Release)
+        run: dotnet build com.IvanMurzak.GameDev.MCP.Server.csproj -c Release --no-restore
+
+      - name: Pack (global dotnet tool)
+        run: dotnet pack com.IvanMurzak.GameDev.MCP.Server.csproj --no-build --configuration Release --output ./packages
+
+      - name: Login to NuGet with Trusted Publishing
+        id: nuget_login
+        uses: NuGet/login@v1
+        with:
+          user: IvanMurzak
+
+      - name: Publish to NuGet
+        run: |
+          nupkg_file="./packages/com.IvanMurzak.GameDev.MCP.Server.${{ steps.version.outputs.version }}.nupkg"
+          if [ ! -f "$nupkg_file" ]; then
+            echo "Error: expected .nupkg not found: $nupkg_file"
+            echo "The csproj <Version> must match the release tag (minus the 'v' prefix)."
+            ls -la ./packages || true
+            exit 1
+          fi
+          echo "Deploying NuGet package: $nupkg_file (version: ${{ steps.version.outputs.version }})"
+          dotnet nuget push "$nupkg_file" --api-key ${{ steps.nuget_login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
