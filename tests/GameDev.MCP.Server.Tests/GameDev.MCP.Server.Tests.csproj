@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Matches the TFM of the host project (com.IvanMurzak.GameDev.MCP.Server.csproj). -->
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>com.IvanMurzak.GameDev.MCP.Server.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Reference the host project under test. ASP.NET Core (Microsoft.AspNetCore.App)
+         + the ModelContextProtocol / Microsoft.Extensions.Caching.Abstractions types the
+         tests use (DefaultHttpContext, InitializeRequestParams, IDistributedCache) flow
+         in transitively through this reference, so no explicit FrameworkReference or
+         extra package pins are needed. -->
+    <ProjectReference Include="..\..\com.IvanMurzak.GameDev.MCP.Server.csproj" />
+  </ItemGroup>
+
+</Project>

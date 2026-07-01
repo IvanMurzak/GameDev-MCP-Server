@@ -17,10 +17,13 @@ using com.IvanMurzak.McpPlugin.Server;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.AspNetCore;
 using NLog;
 using NLog.Extensions.Logging;
+using StackExchange.Redis;
 
 namespace com.IvanMurzak.GameDev.MCP.Server
 {
@@ -75,9 +78,61 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
                 // Setup MCP Plugin ---------------------------------------------------------------
 
-                builder.Services
+                var mcpServerBuilder = builder.Services
                     .WithMcpServer(dataArguments, logger)
                     .WithMcpPluginServer(dataArguments);
+
+                // Issue #70 — Option B: when REDIS_URL is set, plug Redis into the SDK's
+                // session-migration + SSE event-store hooks so sessions survive a restart.
+                // When unset, the server skips the registrations and behaves as before
+                // (sessions are lost on restart) — a startup warning is logged below.
+                var redisUrl = builder.Configuration["REDIS_URL"];
+                var streamableHttp = dataArguments.ClientTransport == Consts.MCP.Server.TransportMethod.streamableHttp;
+                var sessionPersistenceEnabled = streamableHttp && !string.IsNullOrWhiteSpace(redisUrl);
+
+                if (sessionPersistenceEnabled)
+                {
+                    // StackExchange.Redis's ConfigurationOptions.Parse expects "host:port[,opt=val,...]"
+                    // form, NOT a URI like "redis://host:port/db". The rest of the stack uses the URI
+                    // form (.env.example, docker-compose, the Python backend's redis-py), so normalize
+                    // here before parsing — otherwise Parse keeps "redis://host" as the host name and
+                    // the connection target becomes "redis://host:port/db:6379", which never resolves.
+                    var redisConfigString = NormalizeRedisUrlForStackExchange(redisUrl!);
+
+                    builder.Services.AddStackExchangeRedisCache(options =>
+                    {
+                        var redisConfig = ConfigurationOptions.Parse(redisConfigString);
+                        redisConfig.AbortOnConnectFail = false;
+                        redisConfig.ConnectRetry = 3;
+                        redisConfig.ConnectTimeout = 2000;
+                        redisConfig.SyncTimeout = 2000;
+                        options.ConfigurationOptions = redisConfig;
+                        // MCP_REDIS_KEY_PREFIX namespaces this server's cache entries in Redis so
+                        // multiple stacks (parallel worktrees, blue/green deployments, multi-tenant
+                        // shared-Redis hosts) can share one Redis instance without colliding on keys.
+                        // Defaults to "mcp-server:" to preserve historical behaviour.
+                        options.InstanceName = builder.Configuration["MCP_REDIS_KEY_PREFIX"] ?? "mcp-server:";
+                    });
+
+                    // Resolve the migration-record TTL from config (issue #209). The previous
+                    // hardcoded 2h sliding window expired recovery records long before the
+                    // in-memory idle window (up to 10h in prod) released the session, so any
+                    // session older than 2h was lost on restart. ResolveTtl sources an explicit
+                    // MCP_SESSION_MIGRATION_TTL_SECONDS override, else falls back to the in-memory
+                    // idle window (MCP_PLUGIN_IDLE_TIMEOUT_SECONDS), else a 10h default — always
+                    // floored at the idle timeout so the recovery window can never be shorter than
+                    // the in-memory session lifetime.
+                    var sessionMigrationTtl = SessionMigrationHandler.ResolveTtl(
+                        builder.Configuration[SessionMigrationHandler.MigrationTtlEnvVar],
+                        builder.Configuration[SessionMigrationHandler.IdleTimeoutEnvVar]);
+
+                    builder.Services.AddSingleton<ISessionMigrationHandler>(sp =>
+                        new SessionMigrationHandler(
+                            sp.GetRequiredService<IDistributedCache>(),
+                            sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
+                            sessionMigrationTtl));
+                    mcpServerBuilder.WithDistributedCacheEventStreamStore();
+                }
 
                 // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
 
@@ -87,6 +142,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 builder.WebHost.UseKestrelForMcpPlugin(dataArguments.Port);
 
                 var app = builder.Build();
+
+                if (streamableHttp && !sessionPersistenceEnabled)
+                {
+                    app.Logger.LogWarning(
+                        "REDIS_URL is not set — MCP sessions will NOT survive a server restart. "
+                        + "Configure Redis to enable Option B (issue #70).");
+                }
 
                 // Middleware ----------------------------------------------------------------
                 // ---------------------------------------------------------------------------
@@ -151,6 +213,59 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             {
                 LogManager.Shutdown();
             }
+        }
+
+        /// <summary>
+        /// Convert a redis-URI-style connection string (redis://[user:pass@]host:port[/db])
+        /// into the host:port[,password=...,defaultDatabase=N,ssl=True] form that
+        /// StackExchange.Redis's ConfigurationOptions.Parse understands. Strings that
+        /// already use the host:port form are returned unchanged.
+        /// </summary>
+        internal static string NormalizeRedisUrlForStackExchange(string redisUrl)
+        {
+            if (string.IsNullOrWhiteSpace(redisUrl))
+                return redisUrl;
+
+            var trimmed = redisUrl.Trim();
+            var lower = trimmed.ToLowerInvariant();
+            if (!lower.StartsWith("redis://") && !lower.StartsWith("rediss://"))
+                return trimmed; // already in StackExchange.Redis form (host:port,...)
+
+            if (!Uri.TryCreate(trimmed, UriKind.Absolute, out var uri))
+                return trimmed; // fall through; let Parse surface the error
+
+            var host = string.IsNullOrEmpty(uri.Host) ? "localhost" : uri.Host;
+            var port = uri.Port > 0 ? uri.Port : 6379;
+            var sb = new System.Text.StringBuilder();
+            sb.Append(host).Append(':').Append(port);
+
+            // userinfo -> password=...,user=...
+            if (!string.IsNullOrEmpty(uri.UserInfo))
+            {
+                var userInfo = uri.UserInfo;
+                var colonIdx = userInfo.IndexOf(':');
+                string user = colonIdx >= 0 ? userInfo.Substring(0, colonIdx) : string.Empty;
+                string password = colonIdx >= 0 ? userInfo.Substring(colonIdx + 1) : userInfo;
+                if (!string.IsNullOrEmpty(password))
+                    sb.Append(",password=").Append(Uri.UnescapeDataString(password));
+                if (!string.IsNullOrEmpty(user))
+                    sb.Append(",user=").Append(Uri.UnescapeDataString(user));
+            }
+
+            // path -> /<db>
+            var path = uri.AbsolutePath;
+            if (!string.IsNullOrEmpty(path) && path.Length > 1)
+            {
+                var dbStr = path.TrimStart('/');
+                if (int.TryParse(dbStr, out var db) && db >= 0)
+                    sb.Append(",defaultDatabase=").Append(db);
+            }
+
+            // rediss:// -> ssl=True
+            if (lower.StartsWith("rediss://"))
+                sb.Append(",ssl=True");
+
+            return sb.ToString();
         }
     }
 }
