@@ -116,9 +116,9 @@ Logs are written to `logs/server-log.txt` (and `logs/server-log-error.txt`); in 
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Unity-MCP plugin | Godot-MCP addon | Unreal-MCP plugin |
 | --- | --- | --- | --- | --- | --- |
-| 8.0.1 | 6.10.0 | 5.3.1 | ≥ 0.80.x | ≥ 0.3.x | ≥ 0.1.x |
+| 8.0.2 | 6.10.0 | 5.3.1 | ≥ 0.80.x | ≥ 0.3.x | ≥ 0.1.x |
 
-The engine plugin versions listed pin McpPlugin 6.7.x; any plugin built against McpPlugin 6.x talks to this server. The server version (8.0.1) is deliberately above every per-engine server artifact it replaces so auto-updaters treat it as newer.
+The engine plugin versions listed pin McpPlugin 6.7.x; any plugin built against McpPlugin 6.x talks to this server. The server version (8.0.2) is deliberately above every per-engine server artifact it replaces so auto-updaters treat it as newer.
 
 ## License
 
