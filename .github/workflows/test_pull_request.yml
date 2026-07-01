@@ -36,5 +36,8 @@ jobs:
       - name: Build (Release)
         run: dotnet build com.IvanMurzak.GameDev.MCP.Server.csproj -c Release --no-restore
 
+      - name: Test
+        run: dotnet test tests/GameDev.MCP.Server.Tests/GameDev.MCP.Server.Tests.csproj -c Release
+
       - name: Validate Dockerfile (build image, no push)
         run: docker build -t gamedev-mcp-server:ci .

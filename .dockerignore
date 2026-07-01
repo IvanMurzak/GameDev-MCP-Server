@@ -12,6 +12,9 @@ obj
 publish
 nupkg
 
+# test project (never shipped in the runtime image)
+tests
+
 # documentation
 *.md
 
