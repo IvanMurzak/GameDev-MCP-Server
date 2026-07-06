@@ -73,7 +73,7 @@ In stdio mode console logging is redirected to stderr so stdout stays clean for 
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Unity-MCP plugin | Godot-MCP addon | Unreal-MCP plugin |
 | --- | --- | --- | --- | --- | --- |
-| 8.0.2 | 6.10.0 | 5.3.1 | >= 0.80.x | >= 0.3.x | >= 0.1.x |
+| 8.0.3 | 6.11.0 | 5.3.1 | >= 0.80.x | >= 0.3.x | >= 0.1.x |
 
 Any engine plugin built against McpPlugin 6.x talks to this server.
 

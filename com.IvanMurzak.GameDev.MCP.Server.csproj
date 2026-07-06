@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>gamedev-mcp-server</ToolCommandName>
     <PackageId>com.IvanMurzak.GameDev.MCP.Server</PackageId>
-    <Version>8.0.2</Version>
+    <Version>8.0.3</Version>
     <Authors>Ivan Murzak</Authors>
     <Company>Ivan Murzak</Company>
     <Copyright>Copyright © 2026 Ivan Murzak</Copyright>
