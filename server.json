@@ -43,6 +43,47 @@
           ],
           "is_required": false,
           "is_secret": false
+        },
+        {
+          "name": "MCP_AUTH",
+          "description": "Authentication mode: none or oauth. Default depends on transport: stdio -> none (offline/local/CI), streamableHttp -> oauth when MCP_AUTH_ISSUER + MCP_PUBLIC_URL are set, otherwise none. oauth validates ES256 JWTs (via cached JWKS) issued by MCP_AUTH_ISSUER, audienced to MCP_PUBLIC_URL.",
+          "format": "string",
+          "default": "none",
+          "enum": [
+            "none",
+            "oauth"
+          ],
+          "is_required": false,
+          "is_secret": false
+        },
+        {
+          "name": "MCP_AUTH_ISSUER",
+          "description": "OAuth authorization-server URL (e.g. https://ai-game.dev). Required when MCP_AUTH=oauth.",
+          "format": "string",
+          "is_required": false,
+          "is_secret": false
+        },
+        {
+          "name": "MCP_PUBLIC_URL",
+          "description": "This server's canonical public resource URL (its token audience, e.g. https://ai-game.dev/mcp). Required when MCP_AUTH=oauth; also seeds the Origin allow-list.",
+          "format": "string",
+          "is_required": false,
+          "is_secret": false
+        },
+        {
+          "name": "MCP_BIND",
+          "description": "Network bind address: loopback (default), any (0.0.0.0), or a specific IP. Hosted deploys reachable by a reverse proxy set MCP_BIND=0.0.0.0.",
+          "format": "string",
+          "default": "loopback",
+          "is_required": false,
+          "is_secret": false
+        },
+        {
+          "name": "MCP_ALLOWED_ORIGINS",
+          "description": "Comma/semicolon-separated additional allowed Origins for browser clients (in addition to loopback + the MCP_PUBLIC_URL origin). Avoids a blanket wildcard on credentialed paths.",
+          "format": "string",
+          "is_required": false,
+          "is_secret": false
         }
       ]
     }
