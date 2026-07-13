@@ -109,16 +109,61 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin → Server connection timeout (ms) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client → Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `21600` | streamableHttp idle-session eviction window (this host seeds 6h instead of the package default of 600s) |
+| `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none` or `oauth` |
+| `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL (e.g. `https://ai-game.dev`). Required for `oauth` |
+| `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |
+| `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP. Hosted deploys behind a proxy set `any`/`0.0.0.0` |
+| `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Comma/semicolon-separated additional allowed browser Origins (added to loopback + the `--public-url` origin) |
 
 Logs are written to `logs/server-log.txt` (and `logs/server-log-error.txt`); in stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
 
+## Authentication
+
+The server is an OAuth 2.1 **resource server**. Two modes:
+
+| Mode | Auth | Default for | Use |
+| --- | --- | --- | --- |
+| `none` | none — single-instance, zero-config | **stdio** | offline / local dev / CI |
+| `oauth` | ES256 JWT validated locally via cached JWKS (with PAT introspection fallback); `401` + `resource_metadata` challenge | **streamableHttp** | signed-in localhost **and** hosted |
+
+- **Transport-conditional default:** `stdio` defaults to `none`. `streamableHttp` defaults to `oauth` **when both `--auth-issuer` and `--public-url` are configured**; otherwise it stays on `none` and logs a warning (so the zero-config `docker run` / `--port 8080` quickstart still works). An explicit `--auth` always wins.
+- **`oauth` requires** `--auth-issuer` (the authorization server, e.g. `https://ai-game.dev`) **and** `--public-url` (this server's canonical audience). Startup fails fast if either is missing while `--auth oauth` is set.
+- **Origin validation** (DNS-rebinding defense) runs in **all** modes: a request with a non-allowed `Origin` gets `403`. Loopback and the `--public-url` origin are allowed by default; add more with `MCP_ALLOWED_ORIGINS`.
+- **Bind** defaults to loopback. Set `--bind any` (or `0.0.0.0`) for a hosted deployment a reverse proxy must reach.
+
+```bash
+# Local, offline (stdio, none) — unchanged zero-config default:
+gamedev-mcp-server --client-transport stdio --port 8080
+
+# Hosted resource server (streamableHttp, oauth), reachable by nginx:
+gamedev-mcp-server --client-transport streamableHttp --port 8080 \
+  --auth oauth --auth-issuer https://ai-game.dev --public-url https://ai-game.dev/mcp \
+  --bind 0.0.0.0
+```
+
+## Configure an AI agent
+
+Write a project-scoped, pinned MCP client config for any supported AI agent from the terminal — no editor UI, no token copy/paste (native OAuth authorize):
+
+```bash
+# Local server, current project:
+gamedev-mcp-server configure --agent claude-code
+# Hosted server:
+gamedev-mcp-server configure --agent codex --url https://ai-game.dev/mcp
+# List agents:
+gamedev-mcp-server configure --help
+```
+
+Each written config is **URL-only** (credentials are never written into project files) and carries the project pin (`…/p/<pin>` path segment) plus, for local servers, the deterministic per-project port — so agent sessions launched in this project folder route strictly to this project's engine. `--agent <id>` accepts any id from `configure --help` (e.g. `claude-code`, `codex`, `cursor`, `vscode-copilot`, …); `--transport stdio` writes a stdio spawn config instead of an HTTP one; `--project <path>` targets a different project root (default: current directory).
+
 ## Compatibility
 
-| GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Unity-MCP plugin | Godot-MCP addon | Unreal-MCP plugin |
-| --- | --- | --- | --- | --- | --- |
-| 8.0.3 | 6.11.0 | 5.3.1 | ≥ 0.80.x | ≥ 0.3.x | ≥ 0.1.x |
+| GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
+| --- | --- | --- | --- |
+| 8.0.3 (released) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin **6.x** |
+| 9.0.0 (upcoming) | 7.0.0-preview.1 | 5.3.2 | engine plugins on McpPlugin **7.x** (Phase 4) |
 
-The engine plugin versions listed pin McpPlugin 6.7.x; any plugin built against McpPlugin 6.x talks to this server. The server version (8.0.3) is deliberately above every per-engine server artifact it replaces so auto-updaters treat it as newer.
+> **Development snapshot.** The `main` branch now builds against **McpPlugin.Server 7.0.0-preview.1** (the mcp-authorize resource-server major) but the `<Version>` / `server.json` version literal is still `8.0.3` — the `9.0.0` version bump and the Docker/zip/dotnet-tool publish are a separate, owner-gated release step run against the McpPlugin 7.0 stable line. The `9.0.0` server needs an engine plugin built on McpPlugin **7.x** (the new instance-metadata handshake + `oauth` mode); older McpPlugin 6.x plugins pair with the released `8.0.3` server line.
 
 ## License
 

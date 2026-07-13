@@ -26,6 +26,11 @@
     <PackageReleaseNotes>First release of the shared GameDev MCP Server as a global dotnet tool</PackageReleaseNotes>
   </PropertyGroup>
 
+  <!-- Expose internal helpers (e.g. ConfigureCommand's pure resolvers) to the test project. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="GameDev.MCP.Server.Tests" />
+  </ItemGroup>
+
   <!-- Disable static web assets manifests & strip debug symbols for lean Release output -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <GenerateStaticWebAssetsManifest>false</GenerateStaticWebAssetsManifest>
@@ -52,11 +57,19 @@
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.3.2" />
-    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="6.11.1" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="7.0.0-preview.1" />
+    <!--
+      Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
+      shared AI-agent configurator registry (AiAgentConfiguratorRegistry) + ProjectIdentity /
+      ProjectMarker primitives the `configure` subcommand consumes from the terminal. Pinned in
+      lockstep with McpPlugin.Server.
+    -->
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="7.0.0-preview.1" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' == 'true'">
     <ProjectReference Include="./../MCP-Plugin-dotnet/McpPlugin.Server/McpPlugin.Server.csproj" />
+    <ProjectReference Include="./../MCP-Plugin-dotnet/McpPlugin/McpPlugin.csproj" />
     <ProjectReference Include="./../ReflectorNet/ReflectorNet/ReflectorNet.csproj" />
   </ItemGroup>
 

@@ -66,16 +66,25 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin to Server connection timeout (ms) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client to Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `21600` | streamableHttp idle-session eviction window |
+| `MCP_AUTH` | `--auth` | transport-dependent | Authentication mode: `none` or `oauth` (stdio -> none; http -> oauth when issuer + public-url set) |
+| `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL. Required for `oauth` |
+| `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |
+| `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP |
+| `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Additional allowed browser Origins (comma/semicolon-separated) |
 
 In stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
 
+Write a pinned, URL-only MCP client config for an AI agent from the terminal:
+`gamedev-mcp-server configure --agent claude-code` (or `--agent codex --url https://ai-game.dev/mcp`; `configure --help` lists all agents).
+
 ## Compatibility
 
-| GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Unity-MCP plugin | Godot-MCP addon | Unreal-MCP plugin |
-| --- | --- | --- | --- | --- | --- |
-| 8.0.3 | 6.11.0 | 5.3.1 | >= 0.80.x | >= 0.3.x | >= 0.1.x |
+| GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
+| --- | --- | --- | --- |
+| 8.0.3 (released) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin 6.x |
+| 9.0.0 (upcoming) | 7.0.0-preview.1 | 5.3.2 | engine plugins on McpPlugin 7.x (Phase 4) |
 
-Any engine plugin built against McpPlugin 6.x talks to this server.
+The `main` branch builds against McpPlugin.Server 7.0.0-preview.1 (the OAuth resource-server major); the `9.0.0` version bump + publish is a separate owner-gated release step. Older McpPlugin 6.x engine plugins pair with the released `8.0.3` server line.
 
 ## Links
 

@@ -11,6 +11,8 @@
 using System;
 using System.Text.Json;
 using System.Threading.Tasks;
+using com.IvanMurzak.GameDev.MCP.Server.Configure;
+using com.IvanMurzak.GameDev.MCP.Server.Startup;
 using com.IvanMurzak.McpPlugin.Common;
 using com.IvanMurzak.McpPlugin.Common.Utils;
 using com.IvanMurzak.McpPlugin.Server;
@@ -29,8 +31,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 {
     public class Program
     {
-        public static async Task Main(string[] args)
+        public static async Task<int> Main(string[] args)
         {
+            // Subcommand dispatch: `gamedev-mcp-server configure --agent <id> [--url ...]` writes an MCP
+            // client config from the terminal using the shared configurator registry, then exits WITHOUT
+            // starting the server. Handled first so it never boots Kestrel / NLog server logging.
+            if (ConfigureCommand.IsInvocation(args))
+                return ConfigureCommand.Run(args);
+
             // Configure NLog
             LogManager.Setup().LoadConfigurationFromFile("NLog.config");
 
@@ -41,6 +49,28 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             // explicit MCP_PLUGIN_IDLE_TIMEOUT_SECONDS or --idle-timeout-seconds still overrides this.
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(Consts.MCP.Server.Env.IdleTimeoutSeconds)))
                 Environment.SetEnvironmentVariable(Consts.MCP.Server.Env.IdleTimeoutSeconds, "21600"); // 6 hours
+
+            // Transport-conditional authentication default (mcp-authorize, design 02 §"modes"):
+            // stdio => none, streamableHttp => oauth. DataArguments defaults auth to `none` for BOTH
+            // transports (it cannot know the host policy), so the host seeds the http default here.
+            // Mirroring the idle-timeout seed above, we only SEED the env var — never override an
+            // explicit choice — and DataArguments re-parses it below. oauth mode REQUIRES --auth-issuer
+            // AND --public-url (the shared AccountMcpStrategy.Validate throws otherwise), so http only
+            // defaults to oauth when both are configured; without them it stays on `none` with a loud
+            // warning rather than crashing the documented bare-run quickstart. See HostAuthDefaults.
+            var authProbe = new DataArguments(args);
+            var authDecision = HostAuthDefaults.Decide(
+                authProbe.ClientTransport,
+                HostAuthDefaults.IsAuthExplicitlySet(args),
+                hasAuthIssuer: !string.IsNullOrWhiteSpace(authProbe.AuthIssuer),
+                hasPublicUrl: !string.IsNullOrWhiteSpace(authProbe.PublicUrl));
+
+            if (authDecision == HostAuthDefaults.Decision.DefaultHttpToOauth)
+                Environment.SetEnvironmentVariable(
+                    Consts.MCP.Server.Env.Auth,
+                    Consts.MCP.Server.AuthOption.oauth.ToString());
+
+            var httpUnauthenticatedFallback = authDecision == HostAuthDefaults.Decision.DefaultHttpToNoneWithWarning;
 
             var dataArguments = new DataArguments(args);
 
@@ -81,6 +111,26 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 var mcpServerBuilder = builder.Services
                     .WithMcpServer(dataArguments, logger)
                     .WithMcpPluginServer(dataArguments);
+
+                // Additional configurable Origin allow-list (b2 carry-forward / design 02 §Origin
+                // validation). The library default admits loopback + the --public-url origin only. When
+                // MCP_ALLOWED_ORIGINS (or --allowed-origins) is set, REPLACE the default
+                // OriginValidationOptions singleton with one that also admits the configured origins, so
+                // a hosted browser client on a different origin works without a blanket `*` on
+                // credentialed paths. Registered AFTER WithMcpPluginServer so this instance wins on
+                // resolution. Unset => the library default (already registered) stands untouched.
+                var rawAllowedOrigins = Environment.GetEnvironmentVariable(OriginAllowList.EnvVar);
+                var parsedArgs = ArgsUtils.ParseLineArguments(args);
+                if (parsedArgs.TryGetValue(OriginAllowList.ArgName, out var argAllowedOrigins)
+                    && !string.IsNullOrWhiteSpace(argAllowedOrigins))
+                    rawAllowedOrigins = argAllowedOrigins;
+
+                if (OriginAllowList.TryBuildOptions(dataArguments, rawAllowedOrigins, out var originOptions)
+                    && originOptions != null)
+                {
+                    builder.Services.AddSingleton(originOptions);
+                    logger.Info($"Origin allow-list extended with {originOptions.AllowedOrigins.Count} configured origin(s) (plus loopback).");
+                }
 
                 // Issue #70 — Option B: when REDIS_URL is set, plug Redis into the SDK's
                 // session-migration + SSE event-store hooks so sessions survive a restart.
@@ -136,10 +186,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
                 // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
 
-                logger.Info($"Start listening on port: {dataArguments.Port}");
+                logger.Info($"Start listening on port: {dataArguments.Port} (bind: {dataArguments.Bind ?? "loopback"})");
 
-                // Bind IPv4 and IPv6 separately to avoid dual-stack socket issues on macOS.
-                builder.WebHost.UseKestrelForMcpPlugin(dataArguments.Port);
+                // Bind IPv4 and IPv6 separately to avoid dual-stack socket issues on macOS. The bind
+                // address (D8: default loopback; --bind/MCP_BIND=any|0.0.0.0|<ip> for LAN/hosted deploys
+                // that nginx must reach) is forwarded to the library's bind-aware Kestrel overload.
+                builder.WebHost.UseKestrelForMcpPlugin(dataArguments.Port, dataArguments.Bind);
 
                 var app = builder.Build();
 
@@ -149,6 +201,18 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                         "REDIS_URL is not set — MCP sessions will NOT survive a server restart. "
                         + "Configure Redis to enable Option B (issue #70).");
                 }
+
+                if (httpUnauthenticatedFallback)
+                {
+                    app.Logger.LogWarning(
+                        "streamableHttp is running WITHOUT authentication (auth=none) because --auth-issuer/--public-url "
+                        + "were not configured. For a network-exposed deployment set --auth oauth with --auth-issuer and "
+                        + "--public-url (see README § Authentication). Pass --auth none explicitly to silence this warning.");
+                }
+
+                app.Logger.LogInformation(
+                    "MCP auth mode: {AuthMode} (transport: {Transport}, bind: {Bind}).",
+                    dataArguments.Authorization, dataArguments.ClientTransport, dataArguments.Bind ?? "loopback");
 
                 // Middleware ----------------------------------------------------------------
                 // ---------------------------------------------------------------------------
@@ -203,6 +267,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 #endregion
 
                 await app.RunAsync();
+                return 0;
             }
             catch (Exception ex)
             {
