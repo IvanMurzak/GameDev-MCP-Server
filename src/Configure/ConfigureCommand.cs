@@ -215,6 +215,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Configure
         {
             if (!string.IsNullOrWhiteSpace(rawAuth)
                 && Enum.TryParse<Consts.MCP.Server.AuthOption>(rawAuth.Trim(), ignoreCase: true, out var explicitOption)
+                && Enum.IsDefined(typeof(Consts.MCP.Server.AuthOption), explicitOption)
                 && explicitOption != Consts.MCP.Server.AuthOption.unknown)
                 return explicitOption;
 

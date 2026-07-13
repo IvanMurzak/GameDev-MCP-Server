@@ -62,6 +62,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
         /// Loopback is handled separately by <see cref="OriginValidationOptions.AllowLoopback"/>.
         /// </summary>
         public static IReadOnlyCollection<string> BuildAllowedOrigins(string? publicUrl, string? rawAllowedOrigins)
+            => Merge(publicUrl, ParseOrigins(rawAllowedOrigins));
+
+        /// <summary>
+        /// Merge the normalized public-url origin (if any) with an already-parsed set of extra origins.
+        /// Shared by <see cref="BuildAllowedOrigins"/> and <see cref="TryBuildOptions"/> so the raw list
+        /// is parsed exactly once per invocation.
+        /// </summary>
+        private static IReadOnlyCollection<string> Merge(string? publicUrl, IReadOnlyList<string> extraOrigins)
         {
             var set = new HashSet<string>(StringComparer.Ordinal);
 
@@ -69,7 +77,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
             if (!string.IsNullOrEmpty(publicOrigin))
                 set.Add(publicOrigin);
 
-            foreach (var origin in ParseOrigins(rawAllowedOrigins))
+            foreach (var origin in extraOrigins)
                 set.Add(origin);
 
             return set;
@@ -83,11 +91,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
         public static bool TryBuildOptions(DataArguments dataArguments, string? rawAllowedOrigins, out OriginValidationOptions? options)
         {
             options = null;
-            if (ParseOrigins(rawAllowedOrigins).Count == 0)
+            var extraOrigins = ParseOrigins(rawAllowedOrigins);
+            if (extraOrigins.Count == 0)
                 return false;
 
             options = new OriginValidationOptions(
-                BuildAllowedOrigins(dataArguments.PublicUrl, rawAllowedOrigins),
+                Merge(dataArguments.PublicUrl, extraOrigins),
                 allowLoopback: true);
             return true;
         }
