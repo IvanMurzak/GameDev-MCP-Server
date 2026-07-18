@@ -161,9 +161,9 @@ Each written config is **URL-only** (credentials are never written into project 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
 | --- | --- | --- | --- |
 | 8.0.3 (released) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin **6.x** |
-| 9.0.0 (upcoming) | 7.0.0-preview.1 | 5.3.2 | engine plugins on McpPlugin **7.x** (Phase 4) |
+| 9.0.0 (released) | 7.0.0-preview.1 | 5.3.2 | engine plugins on McpPlugin **7.x** (Phase 4) |
 
-> **Development snapshot.** The `main` branch now builds against **McpPlugin.Server 7.0.0-preview.1** (the mcp-authorize resource-server major) but the `<Version>` / `server.json` version literal is still `8.0.3` — the `9.0.0` version bump and the Docker/zip/dotnet-tool publish are a separate, owner-gated release step run against the McpPlugin 7.0 stable line. The `9.0.0` server needs an engine plugin built on McpPlugin **7.x** (the new instance-metadata handshake + `oauth` mode); older McpPlugin 6.x plugins pair with the released `8.0.3` server line.
+> **Development snapshot.** The released `9.0.0` server line builds against **McpPlugin.Server 7.0.0-preview.1** (the mcp-authorize resource-server major). The `main` branch is now an in-development **`9.1.0`** snapshot building against **McpPlugin.Server 7.1.1** — its `<Version>` / `server.json` version bump and the Docker/zip/dotnet-tool publish are a separate, owner-gated release step. Any `9.x` server needs an engine plugin built on McpPlugin **7.x** (the instance-metadata handshake + `oauth` mode); older McpPlugin 6.x plugins pair with the released `8.0.3` server line.
 
 ## License
 
