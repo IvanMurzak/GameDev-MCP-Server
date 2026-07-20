@@ -39,7 +39,7 @@ jobs:
 
       - name: Sync README to Docker Hub overview
         continue-on-error: true # best-effort publish; never fail CI on a credential issue
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@v5
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
