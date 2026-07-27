@@ -7,13 +7,13 @@
     "url": "https://github.com/IvanMurzak/GameDev-MCP-Server",
     "source": "github"
   },
-  "version": "9.2.2",
+  "version": "9.2.3",
   "packages": [
     {
       "registry_type": "oci",
       "registry_base_url": "https://docker.io",
       "identifier": "aigamedeveloper/mcp-server",
-      "version": "9.2.2",
+      "version": "9.2.3",
       "transport": {
         "type": "stdio"
       },
