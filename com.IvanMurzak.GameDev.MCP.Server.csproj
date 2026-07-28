@@ -56,7 +56,7 @@
     with the engine plugins (Unity-MCP / Godot-MCP / Unreal-MCP).
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
-    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.3.3" />
+    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.4.0" />
     <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="7.5.1" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
