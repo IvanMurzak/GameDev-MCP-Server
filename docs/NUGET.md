@@ -71,8 +71,11 @@ CLI arguments override environment variables.
 | `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |
 | `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP |
 | `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Additional allowed browser Origins (comma/semicolon-separated) |
+| `MCP_LOG_LEVEL` | — | `Info` | Log verbosity floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so it has no CLI equivalent |
 
 In stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
+
+The default level is `Info`. `MCP_LOG_LEVEL=Trace` dumps every MCP message body for debugging; it is very high volume and rotates `server-log.txt` down to a few minutes of retained history, so set it only while reproducing an issue.
 
 Write a pinned, URL-only MCP client config for an AI agent from the terminal:
 `gamedev-mcp-server configure --agent claude-code` (or `--agent codex --url https://ai-game.dev/mcp`; `configure --help` lists all agents).

@@ -114,8 +114,15 @@ CLI arguments override environment variables.
 | `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |
 | `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP. Hosted deploys behind a proxy set `any`/`0.0.0.0` |
 | `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Comma/semicolon-separated additional allowed browser Origins (added to loopback + the `--public-url` origin) |
+| `MCP_LOG_LEVEL` | — | `Info` | Log verbosity floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so unlike the rest of this table it has no CLI equivalent |
 
 Logs are written to `logs/server-log.txt` (and `logs/server-log-error.txt`); in stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
+
+The default level is `Info`. Set `MCP_LOG_LEVEL=Trace` to dump every MCP message
+body while debugging a protocol issue — but expect volume: on a busy hosted
+deployment Trace measured 39-54k lines/min (5-12 GB/day), which rotates
+`server-log.txt` (10 MB x 5 archives) down to roughly ten minutes of retained
+history. Lower verbosity keeps *more* usable history, not less.
 
 ## Authentication
 
