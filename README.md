@@ -108,7 +108,7 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_PORT` | `--port` | `8080` | Client → Server ← Plugin connection port |
 | `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin → Server connection timeout (ms) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client → Server transport: `stdio` or `streamableHttp` |
-| `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `21600` | streamableHttp idle-session eviction window (this host seeds 6h instead of the package default of 600s) |
+| `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (this host seeds 8h instead of the package default of 600s, so a local session survives a working day). Multi-tenant hosts should lower it and use a Redis session-migration record for long-window resumption |
 | `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none` or `oauth` |
 | `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL (e.g. `https://ai-game.dev`). Required for `oauth` |
 | `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |

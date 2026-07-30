@@ -65,7 +65,7 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_PORT` | `--port` | `8080` | Client to Server to Plugin connection port |
 | `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin to Server connection timeout (ms) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client to Server transport: `stdio` or `streamableHttp` |
-| `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `21600` | streamableHttp idle-session eviction window |
+| `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (8h, so a local session survives a working day) |
 | `MCP_AUTH` | `--auth` | transport-dependent | Authentication mode: `none` or `oauth` (stdio -> none; http -> oauth when issuer + public-url set) |
 | `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL. Required for `oauth` |
 | `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |
