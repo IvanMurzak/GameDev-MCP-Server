@@ -42,13 +42,22 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             // Configure NLog
             LogManager.Setup().LoadConfigurationFromFile("NLog.config");
 
-            // Default the streamableHttp idle-session window to 6 hours for this local server.
+            // Default the streamableHttp idle-session window to 8 hours for this local server.
             // The plugin's built-in default is 600s (10 min), which is too aggressive for a
             // single-user local editor session and drops the MCP session mid-work. We only seed
             // the env var when it is unset, and DataArguments parses CLI args after env vars, so an
             // explicit MCP_PLUGIN_IDLE_TIMEOUT_SECONDS or --idle-timeout-seconds still overrides this.
+            //
+            // 6h -> 8h: the dominant deployment for this host is a developer running it on their own
+            // machine beside an editor, where the session should outlive a working day rather than a
+            // sitting. 6h expired over a long day; 8h covers one. The cost is bounded and local — an
+            // idle session pins its SseEventWriter buffer until evicted, and a single-user machine
+            // has a handful of sessions, not thousands. Multi-tenant HOSTED deployments must not
+            // inherit this: ai-game.dev sets MCP_PLUGIN_IDLE_TIMEOUT_SECONDS=600 explicitly and
+            // relies on the Redis session-migration record for long-window resumption instead, which
+            // costs ~0.5 KB per session rather than tens of MiB.
             if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(Consts.MCP.Server.Env.IdleTimeoutSeconds)))
-                Environment.SetEnvironmentVariable(Consts.MCP.Server.Env.IdleTimeoutSeconds, "21600"); // 6 hours
+                Environment.SetEnvironmentVariable(Consts.MCP.Server.Env.IdleTimeoutSeconds, "28800"); // 8 hours
 
             // Transport-conditional authentication default (mcp-authorize, design 02 §"modes"):
             // stdio => none, streamableHttp => oauth. DataArguments defaults auth to `none` for BOTH
