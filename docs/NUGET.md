@@ -84,10 +84,10 @@ Write a pinned, URL-only MCP client config for an AI agent from the terminal:
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
 | --- | --- | --- | --- |
-| 8.0.3 (released) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin 6.x |
-| 9.0.0 (released) | 7.0.0-preview.1 | 5.3.2 | engine plugins on McpPlugin 7.x (Phase 4) |
+| 9.2.4 (current) | 7.5.2 | 5.4.0 | engine plugins on McpPlugin 7.x |
+| 8.0.3 (legacy) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin 6.x |
 
-The released `9.0.0` server line builds against McpPlugin.Server 7.0.0-preview.1 (the OAuth resource-server major). The `main` branch is now an in-development `9.1.0` snapshot building against McpPlugin.Server 7.1.1; its version bump + publish is a separate owner-gated release step. Older McpPlugin 6.x engine plugins pair with the released `8.0.3` server line.
+Any `9.x` server needs an engine plugin built on McpPlugin 7.x (the instance-metadata handshake + `oauth` mode); McpPlugin 6.x plugins pair with the `8.0.3` line. Every `9.x` release since `9.0.0` builds against a released McpPlugin.Server 7.x — for the exact pins of an intermediate version see its entry on [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases).
 
 ## Links
 
