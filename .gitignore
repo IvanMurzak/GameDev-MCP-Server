@@ -49,3 +49,8 @@ logs/
 # MCP Publisher
 .mcpregistry_github_token
 .mcpregistry_registry_token
+
+# Machine-generated pipeline runtime state — not source.
+# `.pipeline/.hooks/` stays tracked; only its runtime siblings are ignored.
+.pipeline/.runtime/
+.pipeline/.stats/
