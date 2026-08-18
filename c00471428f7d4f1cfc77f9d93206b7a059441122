@@ -1,0 +1,19 @@
+Dockerfile
+  s_c6665a063e4666::t_cd506addc4e6cd 20-28,30-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "c00471428f7d4f1cfc77f9d93206b7a059441122",
+  "prompts": {},
+  "sessions": {
+    "s_c6665a063e4666": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "95e1d8d7-5cfc-4361-803d-3b23a8934a01",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
