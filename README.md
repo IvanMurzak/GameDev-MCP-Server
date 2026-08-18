@@ -167,12 +167,13 @@ Each written config is **URL-only** (credentials are never written into project 
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
 | --- | --- | --- | --- |
-| **9.2.4** (current) | 7.5.2 | 5.4.0 | engine plugins on McpPlugin **7.x** |
+| **9.2.6** (current) | 8.2.0 | 5.4.0 | engine plugins on McpPlugin **8.x** |
+| 9.2.4 (last 7.x) | 7.5.2 | 5.4.0 | engine plugins on McpPlugin **7.x** |
 | 8.0.3 (legacy) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin **6.x** |
 
-Any `9.x` server needs an engine plugin built on McpPlugin **7.x** (the instance-metadata handshake + `oauth` mode). McpPlugin 6.x plugins pair with the `8.0.3` line.
+Server releases `9.2.5` and newer build against McpPlugin **8.x**; `9.0.0`–`9.2.4` build against McpPlugin **7.x** (the instance-metadata handshake + `oauth` mode), and McpPlugin 6.x plugins pair with the `8.0.3` line.
 
-Every `9.x` release since `9.0.0` builds against a released McpPlugin.Server 7.x. For the exact pins of an intermediate version, see its entry on [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) — this table tracks the current release and the last 6.x-compatible one rather than every patch, so it does not go stale between them.
+For the exact pins of an intermediate version, see its entry on [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) — this table tracks the current release and the last release on each earlier McpPlugin major rather than every patch, so it does not go stale between them.
 
 ## License
 
