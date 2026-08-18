@@ -1,0 +1,35 @@
+Dockerfile
+  s_53ce73f91e4281::t_4a6aad64d1a556 1-32
+src/Program.cs
+  s_53ce73f91e4281::t_29b7a581182b67 1-156
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_53ce73f91e4281::t_9c262fca5df63b 1-83
+.dockerignore
+  s_53ce73f91e4281::t_23162c185eddcf 1-32
+server.json
+  s_53ce73f91e4281::t_48ee25a96c13d9 1-50
+src/Utils/NLogLoggerProvider.cs
+  s_53ce73f91e4281::t_2fa608d99a405e 1-27
+src/Utils/NLogAdapter.cs
+  s_53ce73f91e4281::t_187cbe496bb0a1 1-58
+build/entitlements.mac.plist
+  s_53ce73f91e4281::t_2e952a1ace0d3b 1-19
+.gitignore
+  s_53ce73f91e4281::t_33cf796e018cac 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "bf7275f7da0149d1907ea753e32281f27b9f4183",
+  "prompts": {},
+  "sessions": {
+    "s_53ce73f91e4281": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e24c1167-2410-4c32-885c-4fd71d157405",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
