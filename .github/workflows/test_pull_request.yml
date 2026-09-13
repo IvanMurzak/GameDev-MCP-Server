@@ -6,10 +6,24 @@
 # │  See the LICENSE file in the project root for more information.           │
 # └───────────────────────────────────────────────────────────────────────────┘
 
-# Pull-request / main CI gate. Compiles the server against the pinned NuGet
-# packages and validates the Dockerfile builds. This is the required status
-# check for branch protection — PRs (and auto-merge) are blocked until it is
-# green.
+# Pull-request / main CI gate. On `pull_request` / `push` it compiles the server
+# against the pinned NuGet packages and validates the Dockerfile builds. This is
+# the required status check for branch protection — PRs (and auto-merge) are
+# blocked until it is green.
+#
+# Chain leg (node `gamedev-mcp-server`): the SAME job also runs under
+# `workflow_dispatch` with two inputs, the chain lock JSON (`lock`) and its 8-hex
+# hash (`lock_hash8`). `.github/scripts/chain_feed.py` (vendored, byte-identical to
+# ai-game-dev-software `.scripts/chain/leg/chain_feed.py`) then self-builds the
+# ReflectorNet + McpPlugin / McpPlugin.Common / McpPlugin.Server producers the lock
+# carries into a local feed and forces them with exact-version NuGet overrides
+# (`[<version>-ws.g<sha8>]`) before restore — so the 8.2.0 / 5.4.0 csproj pins of
+# every producer the lock carries are REPLACED by the lock's versions.
+# Under a lock the `docker build` step is skipped (the Dockerfile restores from
+# nuget.org at the csproj pins, so an image would be green against RELEASED bits)
+# and the linux-x64 single-file server is published as a run artifact instead.
+# On an ordinary run `chain feed` and `chain leg record` log
+# "chain: no lock (ordinary run)" and exit 0; the other chain steps are skipped.
 
 name: test-pull-request
 
@@ -17,10 +31,31 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      lock:
+        description: the chain lock JSON (<= 60000 characters)
+        required: true
+        type: string
+      lock_hash8:
+        description: first 8 hex characters of the lock hash
+        required: true
+        type: string
+
+# Empty on ordinary runs => GitHub's default title. The chain dispatcher
+# (ai-game-dev-software `.scripts/chain/`) captures a dispatched run by this exact
+# title + headSha. No `concurrency` block: nothing cancels today, and two different
+# locks must be able to run side by side.
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('chain {0} gamedev-mcp-server', inputs.lock_hash8) || '' }}
+
+env:
+  CHAIN_LOCK: ${{ inputs.lock }}
+  CHAIN_LOCK_HASH8: ${{ inputs.lock_hash8 }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -29,6 +64,13 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: "9.0.x"
+
+      - name: chain feed
+        id: chain
+        shell: bash
+        run: |
+          PY="$(command -v python || command -v python3)"
+          "$PY" .github/scripts/chain_feed.py apply --node gamedev-mcp-server --job build
 
       - name: Restore
         run: dotnet restore com.IvanMurzak.GameDev.MCP.Server.csproj
@@ -39,5 +81,102 @@ jobs:
       - name: Test
         run: dotnet test tests/GameDev.MCP.Server.Tests/GameDev.MCP.Server.Tests.csproj -c Release
 
+      # The leg record (below) proves only the HOST csproj's obj/project.assets.json, and
+      # not McpPlugin.Common. The test project restores separately during `dotnet test`:
+      # assert that BOTH assets files resolve every package the override forced (the
+      # script's own rows, Common included) at exactly the lock's ws version. Exit 3 on
+      # any mismatch, or when the override forced nothing.
+      - name: chain identity (test project)
+        if: env.CHAIN_ACTIVE == '1'
+        shell: bash
+        run: |
+          PY="$(command -v python || command -v python3)"
+          "$PY" - <<'EOF'
+          import json, sys, types
+          sys.path.insert(0, ".github/scripts")
+          import chain_feed as cf
+          try:
+              ctx = cf.build_context(types.SimpleNamespace(node="gamedev-mcp-server", job="build", lock=None, lock_file=None, checkout=None, runner_temp=None))
+              rows = cf.nuget_rows_for_node(ctx, ctx.node)
+          except cf.Refusal as exc:
+              print("chain: refused: %s" % exc, file=sys.stderr)
+              sys.exit(2)
+          def libs(path):
+              return cf._library_versions(json.load(open(path, encoding="utf-8-sig")))
+          host = libs("obj/project.assets.json")
+          tests = libs("tests/GameDev.MCP.Server.Tests/obj/project.assets.json")
+          bad = 0 if rows else 1
+          if not rows:
+              print("chain: FAIL the override forced no NuGet package, nothing to prove")
+          for row in rows:
+              pkg, want = row["package_id"], row["ws_version"]
+              ok = host.get(pkg) == want and tests.get(pkg) == want
+              bad += not ok
+              print("chain: %s %s expected=%s host=%s tests=%s" % ("OK  " if ok else "FAIL", pkg, want, host.get(pkg), tests.get(pkg)))
+          sys.exit(3 if bad else 0)
+          EOF
+
       - name: Validate Dockerfile (build image, no push)
+        if: env.CHAIN_ACTIVE != '1'
         run: docker build -t gamedev-mcp-server:ci .
+
+      # Chain only: publish the linux-x64 single-file server by chain_feed.py's embedded
+      # RECIPES publish line (the build/build-all.sh flags, unsigned, at -p:Version=<ws>) into
+      # .artifacts/server/<ws>/linux-x64 and write the chain-identity.json marker with the
+      # vendored script's own writer (never by executing the exe — it has no --version).
+      - name: chain server binary (linux-x64)
+        if: env.CHAIN_ACTIVE == '1'
+        shell: bash
+        run: |
+          PY="$(command -v python || command -v python3)"
+          "$PY" - <<'EOF'
+          import sys, types
+          sys.path.insert(0, ".github/scripts")
+          import chain_feed as cf
+          node = "gamedev-mcp-server"
+          try:
+              ctx = cf.build_context(types.SimpleNamespace(node=node, job="build", lock=None, lock_file=None, checkout=None, runner_temp=None))
+              rid = cf.host_rid()
+              publish = next(c for c in cf.RECIPES[node]["pack"] if c.startswith("dotnet publish "))
+              cmd = cf.substitute(publish, cf.placeholder_values(ctx, node, ctx.checkout))
+              if cf.run(cmd, cwd=ctx.checkout, env=ctx.command_env(), shell=True) != 0:
+                  raise cf.Refusal("`%s` failed" % cmd)
+              exe = cf.server_exe_path(ctx, cf.RECIPES[node]["artifacts"]["binary"]["id"], ctx.ws_version(node), rid)
+              if not exe.is_file():
+                  raise cf.Refusal("publish exited 0 but %s is missing" % cf.as_posix_abs(exe))
+              marker = cf.write_server_marker(exe.parent, ws_version=ctx.ws_version(node), sha=ctx.sha(node) or "", rid=rid, publish_cmd=cmd, exe=exe)
+              print(marker.read_text(encoding="utf-8"))
+              cf._write_github_env([("CHAIN_SERVER_DIR", cf.as_posix_abs(exe.parent))])
+          except cf.Refusal as exc:
+              print("chain: refused: %s" % exc, file=sys.stderr)
+              sys.exit(2)
+          EOF
+
+      - name: chain server artifact
+        if: env.CHAIN_ACTIVE == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: chain-server-linux-x64-${{ inputs.lock_hash8 }}
+          path: ${{ env.CHAIN_SERVER_DIR }}
+          if-no-files-found: error
+          retention-days: 7
+
+      # Identity proof, read from the host csproj's obj/project.assets.json (not inferred from
+      # a restore exit code): it must resolve the ws ReflectorNet + McpPlugin packages the lock
+      # carries. Exits 3 when any proof fails or none exists (=> this job is RED even if the
+      # tests passed), 2 on a refusal, 0 with no lock. The record also lists the named skip
+      # `docker build` ("image: n/a (not overridden)").
+      - name: chain leg record
+        id: chain_record
+        if: always()
+        shell: bash
+        run: |
+          PY="$(command -v python || command -v python3)"
+          "$PY" .github/scripts/chain_feed.py record --node gamedev-mcp-server --job build --job-status "${{ job.status }}" --out chain-leg.json
+
+      - name: chain leg artifact
+        if: always() && env.CHAIN_ACTIVE == '1'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.chain_record.outputs.artifact_name }}
+          path: chain-leg.json
