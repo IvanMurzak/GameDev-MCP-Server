@@ -1,0 +1,21 @@
+.github/workflows/test_pull_request.yml
+  s_de71e20c9d8602::t_5b3efa032c118d 13-24,32-50,55,65-71,81-103,105,107-166
+.github/scripts/chain_feed.py
+  s_de71e20c9d8602::t_2d273c18568429 1-2512
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2710020e1075bd3862e4111d6f284d6f980f9295",
+  "prompts": {},
+  "sessions": {
+    "s_de71e20c9d8602": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b1fa7ae0-224c-4b0e-8499-22456e0d6a3f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
