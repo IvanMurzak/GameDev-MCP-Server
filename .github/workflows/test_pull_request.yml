@@ -18,10 +18,15 @@
 # ReflectorNet + McpPlugin / McpPlugin.Common / McpPlugin.Server producers the lock
 # carries into a local feed and forces them with exact-version NuGet overrides
 # (`[<version>-ws.g<sha8>]`) before restore — so the 8.2.0 / 5.4.0 csproj pins of
-# every producer the lock carries are REPLACED by the lock's versions.
+# every producer the lock carries are REPLACED by the lock's versions. That pin
+# drift is named in the leg record's warnings[] (`record --warn`).
 # Under a lock the `docker build` step is skipped (the Dockerfile restores from
 # nuget.org at the csproj pins, so an image would be green against RELEASED bits)
-# and the linux-x64 single-file server is published as a run artifact instead.
+# and the linux-x64 single-file server is published and fingerprinted instead. The
+# binary is NOT uploaded (owner artifact rule 2026-09-14: upload only small, essential
+# files; consumer legs self-build the server from the lock's sha, design D9) — its
+# version and exe sha256 are carried in the leg record's warnings[]. The only chain
+# upload is the ~1 KB JSON leg record, kept for one day.
 # On an ordinary run `chain feed` and `chain leg record` log
 # "chain: no lock (ordinary run)" and exit 0; the other chain steps are skipped.
 
@@ -65,12 +70,26 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
-      - name: chain feed
-        id: chain
+      # The interpreter is resolved ONCE and invoked through the ${{ env.CHAIN_PY }}
+      # expression (the chain_feed.py print-fragment contract). This job is ubuntu-only,
+      # so only the posix resolver is needed.
+      - name: chain python (posix)
+        if: runner.os != 'Windows' && env.CHAIN_PY == ''
         shell: bash
         run: |
-          PY="$(command -v python || command -v python3)"
-          "$PY" .github/scripts/chain_feed.py apply --node gamedev-mcp-server --job build
+          for c in python3 python; do
+            if "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+              echo "CHAIN_PY=$c" >> "$GITHUB_ENV"; exit 0
+            fi
+          done
+          echo 'chain: no Python 3.9+ on PATH (tried python3, python)' >&2; exit 2
+
+      # This job consumes EVERY edge of the node (reflectornet/nupkg,
+      # mcp-plugin-dotnet/server, mcp-plugin-dotnet/mcpplugin), so `apply` and `record`
+      # both omit --edges — the SAME (default) scope on both.
+      - name: chain feed
+        id: chain
+        run: ${{ env.CHAIN_PY }} .github/scripts/chain_feed.py apply --node gamedev-mcp-server --job build
 
       - name: Restore
         run: dotnet restore com.IvanMurzak.GameDev.MCP.Server.csproj
@@ -85,14 +104,14 @@ jobs:
       # not McpPlugin.Common. The test project restores separately during `dotnet test`:
       # assert that BOTH assets files resolve every package the override forced (the
       # script's own rows, Common included) at exactly the lock's ws version. Exit 3 on
-      # any mismatch, or when the override forced nothing.
+      # any mismatch, or when the override forced nothing. It also exports CHAIN_PIN_DRIFT —
+      # each forced package's csproj pin vs the lock's ws version — for `record --warn`.
       - name: chain identity (test project)
         if: env.CHAIN_ACTIVE == '1'
         shell: bash
         run: |
-          PY="$(command -v python || command -v python3)"
-          "$PY" - <<'EOF'
-          import json, sys, types
+          ${{ env.CHAIN_PY }} - <<'EOF'
+          import json, os, re, sys, types
           sys.path.insert(0, ".github/scripts")
           import chain_feed as cf
           try:
@@ -101,6 +120,13 @@ jobs:
           except cf.Refusal as exc:
               print("chain: refused: %s" % exc, file=sys.stderr)
               sys.exit(2)
+          pins = dict(re.findall(r'<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"', open("com.IvanMurzak.GameDev.MCP.Server.csproj", encoding="utf-8-sig").read()))
+          drift = ["%s %s -> %s" % (r["package_id"], pins.get(r["package_id"], "unpinned (transitive)"), r["ws_version"]) for r in rows if pins.get(r["package_id"]) != r["ws_version"]]
+          if drift:
+              line = "pin drift (csproj pins forced to the lock's ws versions by the chain override): " + "; ".join(drift)
+              print("chain: " + line)
+              with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as fh:
+                  fh.write("CHAIN_PIN_DRIFT=%s\n" % line)
           def libs(path):
               return cf._library_versions(json.load(open(path, encoding="utf-8-sig")))
           host = libs("obj/project.assets.json")
@@ -122,15 +148,17 @@ jobs:
 
       # Chain only: publish the linux-x64 single-file server by chain_feed.py's embedded
       # RECIPES publish line (the build/build-all.sh flags, unsigned, at -p:Version=<ws>) into
-      # .artifacts/server/<ws>/linux-x64 and write the chain-identity.json marker with the
-      # vendored script's own writer (never by executing the exe — it has no --version).
+      # .artifacts/server/<ws>/linux-x64, write the chain-identity.json marker with the
+      # vendored script's own writer (never by executing the exe — it has no --version), and
+      # export CHAIN_SERVER_IDENTITY (ws version, sha, exe sha256, size) for `record --warn`.
+      # The binary itself is NOT uploaded (owner artifact rule 2026-09-14; nothing consumes
+      # it — consumer legs self-build the server from the lock's sha, design D9).
       - name: chain server binary (linux-x64)
         if: env.CHAIN_ACTIVE == '1'
         shell: bash
         run: |
-          PY="$(command -v python || command -v python3)"
-          "$PY" - <<'EOF'
-          import sys, types
+          ${{ env.CHAIN_PY }} - <<'EOF'
+          import json, sys, types
           sys.path.insert(0, ".github/scripts")
           import chain_feed as cf
           node = "gamedev-mcp-server"
@@ -145,38 +173,33 @@ jobs:
               if not exe.is_file():
                   raise cf.Refusal("publish exited 0 but %s is missing" % cf.as_posix_abs(exe))
               marker = cf.write_server_marker(exe.parent, ws_version=ctx.ws_version(node), sha=ctx.sha(node) or "", rid=rid, publish_cmd=cmd, exe=exe)
-              print(marker.read_text(encoding="utf-8"))
-              cf._write_github_env([("CHAIN_SERVER_DIR", cf.as_posix_abs(exe.parent))])
+              data = json.loads(marker.read_text(encoding="utf-8"))
+              print(json.dumps(data, indent=2))
+              line = "server binary not uploaded (owner artifact rule): %s %s ws_version=%s sha=%s exe_sha256=%s size=%d" % (
+                  exe.name, rid, data.get("ws_version"), data.get("sha"), data.get("exe_sha256"), exe.stat().st_size)
+              print("chain: " + line)
+              cf._write_github_env([("CHAIN_SERVER_IDENTITY", line)])
           except cf.Refusal as exc:
               print("chain: refused: %s" % exc, file=sys.stderr)
               sys.exit(2)
           EOF
 
-      - name: chain server artifact
-        if: env.CHAIN_ACTIVE == '1'
-        uses: actions/upload-artifact@v7
-        with:
-          name: chain-server-linux-x64-${{ inputs.lock_hash8 }}
-          path: ${{ env.CHAIN_SERVER_DIR }}
-          if-no-files-found: error
-          retention-days: 7
-
       # Identity proof, read from the host csproj's obj/project.assets.json (not inferred from
       # a restore exit code): it must resolve the ws ReflectorNet + McpPlugin packages the lock
       # carries. Exits 3 when any proof fails or none exists (=> this job is RED even if the
       # tests passed), 2 on a refusal, 0 with no lock. The record also lists the named skip
-      # `docker build` ("image: n/a (not overridden)").
+      # `docker build` ("image: n/a (not overridden)"). A blank --warn is dropped by the script,
+      # so an unset CHAIN_PIN_DRIFT / CHAIN_SERVER_IDENTITY (an earlier step failed) adds nothing.
       - name: chain leg record
         id: chain_record
         if: always()
         shell: bash
-        run: |
-          PY="$(command -v python || command -v python3)"
-          "$PY" .github/scripts/chain_feed.py record --node gamedev-mcp-server --job build --job-status "${{ job.status }}" --out chain-leg.json
+        run: ${{ env.CHAIN_PY }} .github/scripts/chain_feed.py record --node gamedev-mcp-server --job build --job-status ${{ job.status }} --warn "$CHAIN_PIN_DRIFT" --warn "$CHAIN_SERVER_IDENTITY" --out chain-leg.json
 
       - name: chain leg artifact
-        if: always() && env.CHAIN_ACTIVE == '1'
+        if: always() && steps.chain_record.outputs.artifact_name != ''
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.chain_record.outputs.artifact_name }}
           path: chain-leg.json
+          retention-days: 1
