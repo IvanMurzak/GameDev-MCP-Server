@@ -27,6 +27,9 @@
 # downloads it: every consumer leg builds the server itself from the lock's sha) — its
 # version and exe sha256 are carried in the leg record's warnings[]. The only chain
 # upload is the ~1 KB JSON leg record, kept for one day.
+# Every lock value is validated by the script at load (a malformed lock exits 2 naming the
+# field) and chain steps invoke the interpreter only through ${{ env.CHAIN_PY }}, an
+# absolute path the resolver step proved runs.
 # On an ordinary run `chain python (posix)` only resolves the interpreter, `chain feed`
 # and `chain leg record` log "chain: no lock (ordinary run)" and exit 0, and the other
 # chain steps are skipped.
@@ -58,6 +61,12 @@ env:
   CHAIN_LOCK: ${{ inputs.lock }}
   CHAIN_LOCK_HASH8: ${{ inputs.lock_hash8 }}
 
+# Least privilege: the job only reads the repository. The chain leg clones its PUBLIC
+# producers anonymously and calls no GitHub API, and actions/upload-artifact authenticates
+# with the runner's own Actions runtime token, not GITHUB_TOKEN — so nothing needs write.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -72,18 +81,21 @@ jobs:
           dotnet-version: "9.0.x"
 
       # The interpreter is resolved ONCE and invoked through the ${{ env.CHAIN_PY }}
-      # expression (the chain_feed.py print-fragment contract). This job is ubuntu-only,
-      # so only the posix resolver is needed.
+      # expression (the chain_feed.py print-fragment contract). The resolver RUNS each
+      # candidate and exports its absolute, space-free sys.executable — never a bare
+      # interpreter name. This job is ubuntu-only, so only the posix resolver is needed.
       - name: chain python (posix)
         if: runner.os != 'Windows' && env.CHAIN_PY == ''
         shell: bash
         run: |
           for c in python3 python; do
-            if "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
-              echo "CHAIN_PY=$c" >> "$GITHUB_ENV"; exit 0
-            fi
+            exe="$("$c" -c 'import sys, select, zlib, hashlib; sys.version_info >= (3, 9) or sys.exit(1); print(sys.executable.replace(chr(92), chr(47)))' 2>/dev/null)" || continue
+            case "$exe" in /*) ;; *) continue ;; esac
+            case "$exe" in *[[:space:]]*) continue ;; esac
+            [ -f "$exe" ] && [ -x "$exe" ] || continue
+            echo "CHAIN_PY=$exe" >> "$GITHUB_ENV"; exit 0
           done
-          echo 'chain: no Python 3.9+ on PATH (tried python3, python)' >&2; exit 2
+          echo 'chain: no Python 3.9+ on PATH that runs and reports an absolute, space-free sys.executable (tried python3, python)' >&2; exit 2
 
       # This job consumes EVERY edge of the node (reflectornet/nupkg,
       # mcp-plugin-dotnet/server, mcp-plugin-dotnet/mcpplugin), so `apply` and `record`
@@ -189,7 +201,9 @@ jobs:
               ctx = cf.build_context(types.SimpleNamespace(node=node, job="build", lock=None, lock_file=None, checkout=None, runner_temp=None))
               rid = cf.host_rid()
               publish = next(c for c in cf.RECIPES[node]["pack"] if c.startswith("dotnet publish "))
-              cmd = cf.substitute(publish, cf.placeholder_values(ctx, node, ctx.checkout))
+              # the command runs with shell=True: quote every pasted value exactly as the script's own
+              # build_plan / dry-run do, so the published command is the plan's text
+              cmd = cf.substitute(publish, cf.placeholder_values(ctx, node, ctx.checkout), quote=cf.shell_value)
               if cf.run(cmd, cwd=ctx.checkout, env=ctx.command_env(), shell=True) != 0:
                   raise cf.Refusal("`%s` failed" % cmd)
               exe = cf.server_exe_path(ctx, cf.RECIPES[node]["artifacts"]["binary"]["id"], ctx.ws_version(node), rid)
