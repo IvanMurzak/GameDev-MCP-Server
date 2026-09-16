@@ -1,0 +1,3 @@
+# The vendored chain leg script must stay byte-identical to ai-game-dev-software
+# `.scripts/chain/leg/chain_feed.py` (LF-normalised sha256), on every platform.
+.github/scripts/chain_feed.py text eol=lf
