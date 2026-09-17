@@ -9,26 +9,40 @@
 # Packs and pushes the server as a global dotnet tool to NuGet
 # (com.IvanMurzak.GameDev.MCP.Server, command `gamedev-mcp-server`). Mirrors the
 # engine/library repos' deploy.yml NuGet job (Trusted Publishing, no stored API
-# key). Triggered by a published release (version taken from the release tag) or
-# manually via workflow_dispatch — same trigger as deploy_docker.yml /
-# deploy_server_executables.yml, so all three release channels ship together.
+# key). Reusable CHILD of release.yml ONLY (workflow_call) — like
+# deploy_docker.yml / deploy_server_executables.yml it has no release / dispatch
+# trigger of its own, so all three channels ship together from one manual
+# dispatch of release.yml, after its full test set. On `dry_run` the package is
+# still restored, built and packed (and its file name checked against the
+# version), but NuGet login and push are skipped.
+#
+# NOTE (Trusted Publishing): NuGet/login now runs inside a reusable workflow
+# called by release.yml. The nuget.org policy for IvanMurzak/GameDev-MCP-Server
+# must match the OIDC token of THAT invocation (see CLAUDE.md, "Versioning /
+# releases").
 
 name: deploy-nuget
 
 on:
-  release:
-    types: [published]
-
-  workflow_dispatch:
+  workflow_call:
     inputs:
       version:
-        description: "Deploy to NuGet version (e.g., 8.0.1)."
+        description: "NuGet package version (e.g., 8.0.1), no 'v' prefix."
         required: true
         type: string
+      dry_run:
+        description: "Pack but do not log in to or push to NuGet."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy-to-nuget:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       id-token: write   # required for NuGet Trusted Publishing (OIDC)
     steps:
@@ -37,9 +51,11 @@ jobs:
 
       - name: Extract version from input or release tag
         id: version
+        env:
+          RAW_VERSION: ${{ inputs.version }}
         run: |
-          raw="${{ inputs.version || github.event.release.tag_name }}"
-          # Release tags are v-prefixed (v8.0.1) but the package version is not (8.0.1).
+          raw="$RAW_VERSION"
+          # Tolerate a v-prefixed value (v8.0.1); the package version is not prefixed (8.0.1).
           version="${raw#v}"
           echo "version=$version" >> $GITHUB_OUTPUT
           echo "Extracted version: $version (from $raw)"
@@ -58,13 +74,26 @@ jobs:
       - name: Pack (global dotnet tool)
         run: dotnet pack com.IvanMurzak.GameDev.MCP.Server.csproj --no-build --configuration Release --output ./packages
 
+      - name: Check packed .nupkg matches the version
+        run: |
+          nupkg_file="./packages/com.IvanMurzak.GameDev.MCP.Server.${{ steps.version.outputs.version }}.nupkg"
+          if [ ! -f "$nupkg_file" ]; then
+            echo "Error: expected .nupkg not found: $nupkg_file"
+            echo "The csproj <Version> must match the release version."
+            ls -la ./packages || true
+            exit 1
+          fi
+          echo "Packed: $nupkg_file"
+
       - name: Login to NuGet with Trusted Publishing
+        if: ${{ !inputs.dry_run }}
         id: nuget_login
         uses: NuGet/login@v1
         with:
           user: IvanMurzak
 
       - name: Publish to NuGet
+        if: ${{ !inputs.dry_run }}
         run: |
           nupkg_file="./packages/com.IvanMurzak.GameDev.MCP.Server.${{ steps.version.outputs.version }}.nupkg"
           if [ ! -f "$nupkg_file" ]; then

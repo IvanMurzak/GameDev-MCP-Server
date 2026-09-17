@@ -50,6 +50,21 @@ on:
         description: first 8 hex characters of the lock hash
         required: true
         type: string
+  # release.yml calls this workflow as its full test set (before any publish).
+  # A release is an ordinary run: it passes no lock, so CHAIN_LOCK is empty and
+  # every chain step no-ops exactly as on push / pull_request.
+  workflow_call:
+    inputs:
+      lock:
+        description: the chain lock JSON (empty for an ordinary run)
+        required: false
+        type: string
+        default: ""
+      lock_hash8:
+        description: first 8 hex characters of the lock hash (empty for an ordinary run)
+        required: false
+        type: string
+        default: ""
 
 # Empty on ordinary runs => GitHub's default title. The chain dispatcher
 # (ai-game-dev-software `.scripts/chain/`) captures a dispatched run by this exact

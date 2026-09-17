@@ -1,0 +1,305 @@
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+# │  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+# │  Copyright (c) 2026 Ivan Murzak                                           │
+# │  Licensed under the Apache License, Version 2.0.                          │
+# │  See the LICENSE file in the project root for more information.           │
+# └───────────────────────────────────────────────────────────────────────────┘
+
+# The ONLY way to release GameDev-MCP-Server. Manual dispatch only — merging a
+# version bump to `main` publishes nothing.
+#
+#   gh workflow run release.yml -R IvanMurzak/GameDev-MCP-Server --ref main -f dry_run=false
+#   gh workflow run release.yml -R IvanMurzak/GameDev-MCP-Server --ref main -f dry_run=true
+#
+# Order (every publishing job transitively needs the full test set):
+#   guard -> test -> build executables (7 signed zips) + NuGet + Docker Hub
+#         -> tag v<version> + GitHub Release (zips + SHA256SUMS) -> verify
+#
+# Version source: the csproj <Version>; server.json's two `version` fields must
+# match it. Tag spelling: `v<version>` (e.g. v9.2.6), unchanged.
+#
+# The tag + Release are created AFTER NuGet and Docker Hub are published, so a
+# re-dispatch after a failed publish is possible (the version guard only refuses
+# once the tag exists; NuGet push uses --skip-duplicate and a Docker re-push of
+# the same tag is an overwrite).
+#
+# The GitHub Release is created with GITHUB_TOKEN, which triggers no other
+# workflow — nothing listens for `release` events any more. The three deploy_*
+# workflows are workflow_call children of this file only.
+#
+# dry_run=true: runs guard, the full tests, the NuGet pack, the multi-arch Docker
+# build and the executables build/sign/zip — and publishes NOTHING: no NuGet
+# push, no Docker Hub push, no artifact upload, no tag, no GitHub Release.
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Run every test and build; publish nothing (no NuGet/Docker push, no tag, no GitHub Release)."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # ────────────────────────────────────────────────────────────────────
+  # Ref guard + version guard. Fails first, before any test or build.
+  # ────────────────────────────────────────────────────────────────────
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Ref guard (a real release runs on main only)
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          echo "ref=$GITHUB_REF sha=$GITHUB_SHA dry_run=$DRY_RUN"
+          if [ "$DRY_RUN" != "true" ] && [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::error::A real release (dry_run=false) must be dispatched on refs/heads/main, not $GITHUB_REF."
+            exit 1
+          fi
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Read version (csproj <Version>, server.json in lockstep)
+        id: version
+        run: |
+          set -euo pipefail
+          version="$(grep -oP '<Version>\K[^<]+' com.IvanMurzak.GameDev.MCP.Server.csproj || true)"
+          count="$(printf '%s\n' "$version" | grep -c . || true)"
+          if [ "$count" != "1" ]; then
+            echo "::error::Expected exactly one <Version> in com.IvanMurzak.GameDev.MCP.Server.csproj, found $count."
+            exit 1
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "::error::csproj <Version> '$version' is not strict MAJOR.MINOR.PATCH."
+            exit 1
+          fi
+          sj="$(python3 -c 'import json; d=json.load(open("server.json", encoding="utf-8")); print(d.get("version", ""), ((d.get("packages") or [{}])[0]).get("version", ""))')"
+          if [ "$sj" != "$version $version" ]; then
+            echo "::error::server.json versions (top-level, packages[0]) = '$sj' are not both equal to the csproj <Version> $version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "Release version: $version (tag v$version)"
+
+      - name: Version guard (tag / release must not exist yet)
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          TAG: ${{ steps.version.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          found=""
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$TAG")" ]; then
+            found="tag $TAG"
+          elif gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>&1; then
+            found="GitHub Release $TAG"
+          fi
+          if [ -z "$found" ]; then
+            echo "$TAG is not released yet."
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::warning::$found already exists — a real dispatch of this commit would FAIL here. Continuing the dry run."
+            exit 0
+          fi
+          echo "::error::$found already exists. Bump the csproj <Version> (and server.json) before releasing; this dispatch would otherwise publish nothing."
+          exit 1
+
+  # ────────────────────────────────────────────────────────────────────
+  # Full test set: the same build + unit tests + Dockerfile validation the
+  # PR gate runs.
+  # ────────────────────────────────────────────────────────────────────
+  test:
+    needs: guard
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test_pull_request.yml
+
+  # ────────────────────────────────────────────────────────────────────
+  # Builds (+ publish steps, each gated on dry_run INSIDE the child so a dry
+  # run still exercises pack / multi-arch build / sign / zip).
+  # ────────────────────────────────────────────────────────────────────
+  executables:
+    needs: [guard, test]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy_server_executables.yml
+    with:
+      version: ${{ needs.guard.outputs.version }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  nuget:
+    needs: [guard, test]
+    permissions:
+      contents: read
+      id-token: write   # NuGet Trusted Publishing (OIDC)
+    uses: ./.github/workflows/deploy_nuget.yml
+    with:
+      version: ${{ needs.guard.outputs.version }}
+      dry_run: ${{ inputs.dry_run }}
+
+  docker:
+    needs: [guard, test]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/deploy_docker.yml
+    with:
+      version: ${{ needs.guard.outputs.version }}
+      dry_run: ${{ inputs.dry_run }}
+    secrets: inherit
+
+  # ────────────────────────────────────────────────────────────────────
+  # Tag + GitHub Release, AFTER NuGet and Docker Hub are published. Attaches
+  # the 7 zips and a plain (UNSIGNED) SHA256SUMS manifest computed from them
+  # (standard coreutils format, `<hex>  <file>`, sorted by file name) — the
+  # downloaders (Unity/Godot/Unreal CLIs + the ai-game.dev cloud) verify each
+  # zip against it.
+  # ────────────────────────────────────────────────────────────────────
+  github-release:
+    needs: [guard, test, executables, nuget, docker]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - name: Download server zips
+        uses: actions/download-artifact@v8
+        with:
+          pattern: server-zips-*
+          merge-multiple: true
+          path: assets
+
+      - name: Check all 7 zips + compute SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd assets
+          missing=0
+          for rid in win-x64 win-x86 win-arm64 linux-x64 linux-arm64 osx-x64 osx-arm64; do
+            if [ ! -f "gamedev-mcp-server-${rid}.zip" ]; then
+              echo "::error::missing gamedev-mcp-server-${rid}.zip"
+              missing=1
+            fi
+          done
+          ls -la
+          [ "$missing" = "0" ] || exit 1
+          sha256sum --text gamedev-mcp-server-*.zip | sort -k2 > SHA256SUMS
+          echo "=== SHA256SUMS ==="
+          cat SHA256SUMS
+          echo "=== self-check ==="
+          sha256sum -c SHA256SUMS
+
+      - name: Create tag + GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.guard.outputs.version }}
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cd assets
+          files=(gamedev-mcp-server-*.zip SHA256SUMS)
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>&1; then
+            # Only reachable by re-running this job inside the SAME run (the
+            # version guard refuses a new dispatch once the tag exists). Adopt the
+            # release only if its tag points at this run's commit.
+            tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)"
+            if [ "$tag_sha" != "$GITHUB_SHA" ]; then
+              echo "::error::Release $TAG already exists at $tag_sha, not $GITHUB_SHA. Refusing to retag."
+              exit 1
+            fi
+            echo "Release $TAG already exists at $GITHUB_SHA; re-uploading assets."
+            gh release upload "$TAG" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" "${files[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "GameDev-MCP-Server $VERSION" \
+              --generate-notes
+          fi
+
+  # ────────────────────────────────────────────────────────────────────
+  # Post-publish verification (formerly the local release pipeline's
+  # wait-deploys-and-verify step). The run is green only if the NuGet package,
+  # the Docker Hub tag and the full Release asset set are all live.
+  # ────────────────────────────────────────────────────────────────────
+  verify:
+    needs: [guard, github-release]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: NuGet package is indexed (cap 15 min)
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -uo pipefail
+          url="https://api.nuget.org/v3-flatcontainer/com.ivanmurzak.gamedev.mcp.server/index.json"
+          deadline=$(( $(date +%s) + 900 ))
+          while :; do
+            body="$(curl -fsS --max-time 30 "$url" 2>/dev/null)" && \
+              python3 -c 'import json,sys; sys.exit(0 if sys.argv[1] in json.loads(sys.argv[2]).get("versions", []) else 1)' "$VERSION" "$body" && {
+                echo "com.IvanMurzak.GameDev.MCP.Server $VERSION is on the NuGet flat-container index."; exit 0; }
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::com.IvanMurzak.GameDev.MCP.Server $VERSION not visible at $url within 15 min."
+              exit 1
+            fi
+            echo "not indexed yet; retrying in 30s"; sleep 30
+          done
+
+      - name: Docker Hub tag exists (cap 5 min)
+        env:
+          VERSION: ${{ needs.guard.outputs.version }}
+        run: |
+          set -uo pipefail
+          url="https://hub.docker.com/v2/repositories/aigamedeveloper/mcp-server/tags/$VERSION"
+          deadline=$(( $(date +%s) + 300 ))
+          while :; do
+            code="$(curl -sS -o /dev/null --max-time 30 -w '%{http_code}' "$url" 2>/dev/null || true)"
+            if [ "$code" = "200" ]; then
+              echo "aigamedeveloper/mcp-server:$VERSION is on Docker Hub."; exit 0
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::aigamedeveloper/mcp-server:$VERSION not visible at $url within 5 min (last HTTP $code)."
+              exit 1
+            fi
+            echo "HTTP $code; retrying in 30s"; sleep 30
+          done
+
+      - name: GitHub Release carries all 7 zips + SHA256SUMS
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.guard.outputs.tag }}
+        run: |
+          set -euo pipefail
+          names="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets,isDraft --jq 'if .isDraft then error("release is a draft") else .assets[].name end')"
+          echo "$names"
+          missing=0
+          for f in gamedev-mcp-server-win-x64.zip gamedev-mcp-server-win-x86.zip gamedev-mcp-server-win-arm64.zip \
+                   gamedev-mcp-server-linux-x64.zip gamedev-mcp-server-linux-arm64.zip \
+                   gamedev-mcp-server-osx-x64.zip gamedev-mcp-server-osx-arm64.zip SHA256SUMS; do
+            if ! grep -qxF "$f" <<<"$names"; then
+              echo "::error::Release $TAG is missing asset $f"
+              missing=1
+            fi
+          done
+          exit "$missing"
