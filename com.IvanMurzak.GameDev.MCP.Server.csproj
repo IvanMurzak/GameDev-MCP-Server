@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>gamedev-mcp-server</ToolCommandName>
     <PackageId>com.IvanMurzak.GameDev.MCP.Server</PackageId>
-    <Version>9.2.8</Version>
+    <Version>9.2.9</Version>
     <Authors>Ivan Murzak</Authors>
     <Company>Ivan Murzak</Company>
     <Copyright>Copyright © 2026 Ivan Murzak</Copyright>
@@ -57,14 +57,14 @@
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.4.1" />
-    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.5.0" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.6.0" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
       shared AI-agent configurator registry (AiAgentConfiguratorRegistry) + ProjectIdentity /
       ProjectMarker primitives the `configure` subcommand consumes from the terminal. Pinned in
       lockstep with McpPlugin.Server.
     -->
-    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.5.0" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.6.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' == 'true'">
