@@ -18,7 +18,7 @@
 #
 # NOTE (Trusted Publishing): NuGet/login now runs inside a reusable workflow
 # called by release.yml. The nuget.org policy for IvanMurzak/GameDev-MCP-Server
-# must match the OIDC token of THAT invocation (see CLAUDE.md, "Versioning /
+# must match the OIDC token of THAT invocation (see AGENTS.md, "Versioning /
 # releases").
 
 name: deploy-nuget
