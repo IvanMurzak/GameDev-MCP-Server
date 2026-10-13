@@ -1,0 +1,21 @@
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_4d8fcffaece437::t_9fc9b0f0106643 16,59-60,67
+server.json
+  s_4d8fcffaece437::t_cd7399b72f0075 10,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f5f342dc1269dc789e4099c3fb7a9099fce9dd3f",
+  "prompts": {},
+  "sessions": {
+    "s_4d8fcffaece437": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58a651b2-4041-46b7-9312-13c69a100632",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
