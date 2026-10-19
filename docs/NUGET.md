@@ -63,7 +63,7 @@ CLI arguments override environment variables.
 | Environment variable | CLI argument | Default | Description |
 | --- | --- | --- | --- |
 | `MCP_PLUGIN_PORT` | `--port` | `8080` | Client to Server to Plugin connection port |
-| `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin to Server connection timeout (ms); tool calls do not use it (see `--tool-timeout`) |
+| `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin to Server connection timeout (ms): one attempt of a catalog / prompt / resource request to the plugin. Tool calls do not use it (see `--tool-timeout`) |
 | `MCP_PLUGIN_TOOL_TIMEOUT` | `--tool-timeout` | `300000` (or `--plugin-timeout` if larger) | How long one tool call may run in the plugin (ms). A tool call is sent once and never re-sent |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client to Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (8h, so a local session survives a working day) |
