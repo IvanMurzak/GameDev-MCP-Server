@@ -106,7 +106,8 @@ CLI arguments override environment variables.
 | Environment variable | CLI argument | Default | Description |
 | --- | --- | --- | --- |
 | `MCP_PLUGIN_PORT` | `--port` | `8080` | Client → Server ← Plugin connection port |
-| `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin → Server connection timeout (ms) |
+| `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin → Server connection timeout (ms): one attempt of a catalog / prompt / resource request to the plugin. Tool calls do not use it (see `--tool-timeout`) |
+| `MCP_PLUGIN_TOOL_TIMEOUT` | `--tool-timeout` | `300000` (or `--plugin-timeout` if larger) | How long one tool call may run in the plugin (ms). A tool call is sent to the plugin once and never re-sent; on timeout or a dropped connection it fails, and the tool may still be running in the editor. Raise it for long editor operations (builds, imports) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client → Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (this host seeds 8h instead of the package default of 600s, so a local session survives a working day). Multi-tenant hosts should lower it and use a Redis session-migration record for long-window resumption |
 | `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none` or `oauth` |
