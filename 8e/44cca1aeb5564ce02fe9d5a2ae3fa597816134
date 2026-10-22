@@ -1,0 +1,19 @@
+docs/NUGET.md
+  s_18c028a077906d::t_27b348310b4441 1-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "8e44cca1aeb5564ce02fe9d5a2ae3fa597816134",
+  "prompts": {},
+  "sessions": {
+    "s_18c028a077906d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3c018094-0d03-4a19-b2cf-49a8ba806352",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
