@@ -1,0 +1,32 @@
+src/Plugins/RoleAwareNoAuthStrategy.cs
+  s_7bc72ecaebd05d::t_74af1ebb86d407 39-41,47-48,50,53-55,58-59,67,71-72,82-83,86-87,89,96,99,103-104,106-108,112,114,116-117,120-122,129-130,146-147,149-150,153,156-157,159,165
+src/Startup/PluginHostExtensions.cs
+  s_7bc72ecaebd05d::t_199d790e4b229f 44-49
+  s_7bc72ecaebd05d::t_b11ba496a33f54 62
+src/Plugins/PluginConnectionRegistry.cs
+  s_7bc72ecaebd05d::t_f0b1f741f5131b 88,91-92,95,106-108,110,112,120,125-129,134-135,138,146-149,162,165,170
+src/Plugins/PluginRoleHubFilter.cs
+  s_7bc72ecaebd05d::t_de94e0f6adcdbc 55,57-59,61-62,66-68,76
+src/Tools/GuardedToolHub.cs
+  s_7bc72ecaebd05d::t_2613f2c3a5a620 19,56,59-65,70-71,85,94,98,107,117,139-143,146,148,150,154-155,158,161-170,185,192,195-196,198,201-202,233,267
+src/Tools/ToolArgumentValidator.cs
+  s_7bc72ecaebd05d::t_220f63a79d36d4 32-33,99
+src/Tools/ToolCallAmbient.cs
+  s_7bc72ecaebd05d::t_ddfa7a30f2fb08 22,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c9e253b1fc61f65d4f63febbe18b8e7ba9f4fa73",
+  "prompts": {},
+  "sessions": {
+    "s_7bc72ecaebd05d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "40274cb2-edf8-49ba-9a73-33b83cb5be53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
