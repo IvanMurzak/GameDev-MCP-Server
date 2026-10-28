@@ -1,0 +1,33 @@
+.gitignore
+  s_7bc72ecaebd05d::t_a7c0e9480c9648 27-28
+AGENTS.md
+  s_7bc72ecaebd05d::t_628044be7eb017 38-40
+Directory.Build.props
+  s_7bc72ecaebd05d::t_f358ca87e233b9 1-8
+Dockerfile
+  s_7bc72ecaebd05d::t_a15a32a5bb0d89 8-10
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_7bc72ecaebd05d::t_6290fa9e1e1a29 57-63,67,74
+src/Program.cs
+  s_7bc72ecaebd05d::t_954a7051d49dc7 145
+tests/GameDev.MCP.Server.Tests/PluginRoleRoutingTests.cs
+  s_7bc72ecaebd05d::t_4bad76e28ccff5 14-15,22-23,147-148,170-171,184-186,192-193,196-197,208-210,212,216-222,225-227,230-231
+tests/GameDev.MCP.Server.Tests/ToolArgumentValidatorTests.cs
+  s_7bc72ecaebd05d::t_0b5074ff89dfdd 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f0dfecaf46b4d724dec0cd02ed209d116239e4c8",
+  "prompts": {},
+  "sessions": {
+    "s_7bc72ecaebd05d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "40274cb2-edf8-49ba-9a73-33b83cb5be53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
