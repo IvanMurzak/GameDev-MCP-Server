@@ -109,171 +109,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 consoleWriteLine($"Launch arguments: {string.Join(" ", args)}");
                 consoleWriteLine($"Parsed arguments: {JsonSerializer.Serialize(dataArguments, JsonOptions.Pretty)}");
 
-                var builder = WebApplication.CreateBuilder(args);
+                var app = BuildApp(args, dataArguments, httpUnauthenticatedFallback, logger);
 
-                // Replace default logging with NLog
-                builder.Logging.ClearProviders();
-                builder.Logging.AddNLog();
-
-                // Setup MCP Plugin ---------------------------------------------------------------
-
-                var mcpServerBuilder = builder.Services
-                    .WithMcpServer(dataArguments, logger)
-                    .WithMcpPluginServer(dataArguments);
-
-                // Additional configurable Origin allow-list (b2 carry-forward / design 02 §Origin
-                // validation). The library default admits loopback + the --public-url origin only. When
-                // MCP_ALLOWED_ORIGINS (or --allowed-origins) is set, REPLACE the default
-                // OriginValidationOptions singleton with one that also admits the configured origins, so
-                // a hosted browser client on a different origin works without a blanket `*` on
-                // credentialed paths. Registered AFTER WithMcpPluginServer so this instance wins on
-                // resolution. Unset => the library default (already registered) stands untouched.
-                var rawAllowedOrigins = Environment.GetEnvironmentVariable(OriginAllowList.EnvVar);
-                var parsedArgs = ArgsUtils.ParseLineArguments(args);
-                if (parsedArgs.TryGetValue(OriginAllowList.ArgName, out var argAllowedOrigins)
-                    && !string.IsNullOrWhiteSpace(argAllowedOrigins))
-                    rawAllowedOrigins = argAllowedOrigins;
-
-                if (OriginAllowList.TryBuildOptions(dataArguments, rawAllowedOrigins, out var originOptions)
-                    && originOptions != null)
-                {
-                    builder.Services.AddSingleton(originOptions);
-                    logger.Info($"Origin allow-list extended with {originOptions.AllowedOrigins.Count} configured origin(s) (plus loopback).");
-                }
-
-                // Issue #70 — Option B: when REDIS_URL is set, plug Redis into the SDK's
-                // session-migration + SSE event-store hooks so sessions survive a restart.
-                // When unset, the server skips the registrations and behaves as before
-                // (sessions are lost on restart) — a startup warning is logged below.
-                var redisUrl = builder.Configuration["REDIS_URL"];
-                var streamableHttp = dataArguments.ClientTransport == Consts.MCP.Server.TransportMethod.streamableHttp;
-                var sessionPersistenceEnabled = streamableHttp && !string.IsNullOrWhiteSpace(redisUrl);
-
-                if (sessionPersistenceEnabled)
-                {
-                    // StackExchange.Redis's ConfigurationOptions.Parse expects "host:port[,opt=val,...]"
-                    // form, NOT a URI like "redis://host:port/db". The rest of the stack uses the URI
-                    // form (.env.example, docker-compose, the Python backend's redis-py), so normalize
-                    // here before parsing — otherwise Parse keeps "redis://host" as the host name and
-                    // the connection target becomes "redis://host:port/db:6379", which never resolves.
-                    var redisConfigString = NormalizeRedisUrlForStackExchange(redisUrl!);
-
-                    builder.Services.AddStackExchangeRedisCache(options =>
-                    {
-                        var redisConfig = ConfigurationOptions.Parse(redisConfigString);
-                        redisConfig.AbortOnConnectFail = false;
-                        redisConfig.ConnectRetry = 3;
-                        redisConfig.ConnectTimeout = 2000;
-                        redisConfig.SyncTimeout = 2000;
-                        options.ConfigurationOptions = redisConfig;
-                        // MCP_REDIS_KEY_PREFIX namespaces this server's cache entries in Redis so
-                        // multiple stacks (parallel worktrees, blue/green deployments, multi-tenant
-                        // shared-Redis hosts) can share one Redis instance without colliding on keys.
-                        // Defaults to "mcp-server:" to preserve historical behaviour.
-                        options.InstanceName = builder.Configuration["MCP_REDIS_KEY_PREFIX"] ?? "mcp-server:";
-                    });
-
-                    // Resolve the migration-record TTL from config (issue #209). The previous
-                    // hardcoded 2h sliding window expired recovery records long before the
-                    // in-memory idle window (up to 10h in prod) released the session, so any
-                    // session older than 2h was lost on restart. ResolveTtl sources an explicit
-                    // MCP_SESSION_MIGRATION_TTL_SECONDS override, else falls back to the in-memory
-                    // idle window (MCP_PLUGIN_IDLE_TIMEOUT_SECONDS), else a 10h default — always
-                    // floored at the idle timeout so the recovery window can never be shorter than
-                    // the in-memory session lifetime.
-                    var sessionMigrationTtl = SessionMigrationHandler.ResolveTtl(
-                        builder.Configuration[SessionMigrationHandler.MigrationTtlEnvVar],
-                        builder.Configuration[SessionMigrationHandler.IdleTimeoutEnvVar]);
-
-                    builder.Services.AddSingleton<ISessionMigrationHandler>(sp =>
-                        new SessionMigrationHandler(
-                            sp.GetRequiredService<IDistributedCache>(),
-                            sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
-                            sessionMigrationTtl));
-                    mcpServerBuilder.WithDistributedCacheEventStreamStore();
-                }
-
-                // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
-
-                logger.Info($"Start listening on port: {dataArguments.Port} (bind: {dataArguments.Bind ?? "loopback"})");
-
-                // Bind IPv4 and IPv6 separately to avoid dual-stack socket issues on macOS. The bind
-                // address (D8: default loopback; --bind/MCP_BIND=any|0.0.0.0|<ip> for LAN/hosted deploys
-                // that nginx must reach) is forwarded to the library's bind-aware Kestrel overload.
-                builder.WebHost.UseKestrelForMcpPlugin(dataArguments.Port, dataArguments.Bind);
-
-                var app = builder.Build();
-
-                if (streamableHttp && !sessionPersistenceEnabled)
-                {
-                    app.Logger.LogWarning(
-                        "REDIS_URL is not set — MCP sessions will NOT survive a server restart. "
-                        + "Configure Redis to enable Option B (issue #70).");
-                }
-
-                if (httpUnauthenticatedFallback)
-                {
-                    app.Logger.LogWarning(
-                        "streamableHttp is running WITHOUT authentication (auth=none) because --auth-issuer/--public-url "
-                        + "were not configured. For a network-exposed deployment set --auth oauth with --auth-issuer and "
-                        + "--public-url (see README § Authentication). Pass --auth none explicitly to silence this warning.");
-                }
-
-                app.Logger.LogInformation(
-                    "MCP auth mode: {AuthMode} (transport: {Transport}, bind: {Bind}).",
-                    dataArguments.Authorization, dataArguments.ClientTransport, dataArguments.Bind ?? "loopback");
-
-                // Middleware ----------------------------------------------------------------
-                // ---------------------------------------------------------------------------
-
-                // Setup SignalR ----------------------------------------------------
-                app.UseMcpPluginServer(dataArguments);
-
-                // Setup MCP client -------------------------------------------------
-                if (dataArguments.ClientTransport == Consts.MCP.Server.TransportMethod.streamableHttp)
-                {
-                    // Add a GET /help endpoint for informational message
-                    app.MapGet("/help", () =>
-                    {
-                        var header =
-                            "Author: Ivan Murzak (https://github.com/IvanMurzak)\n" +
-                            "Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)\n" +
-                            "Copyright (c) 2026 Ivan Murzak\n" +
-                            "Licensed under the Apache License, Version 2.0.\n" +
-                            "See the LICENSE file in the project root for more information.\n" +
-                            "\n" +
-                            "Use \"/\" endpoint to get connected to MCP server\n";
-                        return Results.Text(header, Consts.MimeType.TextPlain);
-                    });
-                }
-
-                #region Print Logs
-                if (logger.IsEnabled(NLog.LogLevel.Debug))
-                {
-                    var endpointDataSource = app.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>();
-                    foreach (var endpoint in endpointDataSource.Endpoints)
-                        logger.Debug($"Configured endpoint: {endpoint.DisplayName}");
-
-                    app.Use(async (context, next) =>
-                    {
-                        logger.Debug($"Request: {context.Request.Method} {context.Request.Path}");
-                        try
-                        {
-                            await next.Invoke();
-                            logger.Debug($"Response: {context.Response.StatusCode} ({context.Request.Method} {context.Request.Path})");
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            // Optionally log as debug or ignore
-                        }
-                        catch (Exception ex)
-                        {
-                            logger.Error(ex, $"Error occurred while processing request: {context.Request.Method} {context.Request.Path}");
-                            return;
-                        }
-                    });
-                }
-                #endregion
 
                 await app.RunAsync();
                 return 0;
@@ -287,6 +124,187 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             {
                 LogManager.Shutdown();
             }
+        }
+
+        /// <summary>
+        /// Builds the server: the McpPlugin.Server services plus this host's additions, the Kestrel binding
+        /// and the middleware. Split from <see cref="Main"/> so tests can run the real host.
+        /// </summary>
+        internal static WebApplication BuildApp(string[] args, DataArguments dataArguments, bool httpUnauthenticatedFallback, Logger logger)
+        {
+            var builder = WebApplication.CreateBuilder(args);
+
+            // Replace default logging with NLog
+            builder.Logging.ClearProviders();
+            builder.Logging.AddNLog();
+
+            // Setup MCP Plugin ---------------------------------------------------------------
+
+            var mcpServerBuilder = builder.Services
+                .WithMcpServer(dataArguments, logger)
+                .WithMcpPluginServer(dataArguments)
+                .AddToolCallGuard(dataArguments);
+
+            // auth=none: keep the editor connected when a game (runtime) plugin connects, and route tool
+            // calls to the editor (wave-4/5 finding: the game used to evict the editor).
+            builder.Services.AddPluginRoles(dataArguments);
+
+            // Additional configurable Origin allow-list (b2 carry-forward / design 02 §Origin
+            // validation). The library default admits loopback + the --public-url origin only. When
+            // MCP_ALLOWED_ORIGINS (or --allowed-origins) is set, REPLACE the default
+            // OriginValidationOptions singleton with one that also admits the configured origins, so
+            // a hosted browser client on a different origin works without a blanket `*` on
+            // credentialed paths. Registered AFTER WithMcpPluginServer so this instance wins on
+            // resolution. Unset => the library default (already registered) stands untouched.
+            var rawAllowedOrigins = Environment.GetEnvironmentVariable(OriginAllowList.EnvVar);
+            var parsedArgs = ArgsUtils.ParseLineArguments(args);
+            if (parsedArgs.TryGetValue(OriginAllowList.ArgName, out var argAllowedOrigins)
+                && !string.IsNullOrWhiteSpace(argAllowedOrigins))
+                rawAllowedOrigins = argAllowedOrigins;
+
+            if (OriginAllowList.TryBuildOptions(dataArguments, rawAllowedOrigins, out var originOptions)
+                && originOptions != null)
+            {
+                builder.Services.AddSingleton(originOptions);
+                logger.Info($"Origin allow-list extended with {originOptions.AllowedOrigins.Count} configured origin(s) (plus loopback).");
+            }
+
+            // Issue #70 — Option B: when REDIS_URL is set, plug Redis into the SDK's
+            // session-migration + SSE event-store hooks so sessions survive a restart.
+            // When unset, the server skips the registrations and behaves as before
+            // (sessions are lost on restart) — a startup warning is logged below.
+            var redisUrl = builder.Configuration["REDIS_URL"];
+            var streamableHttp = dataArguments.ClientTransport == Consts.MCP.Server.TransportMethod.streamableHttp;
+            var sessionPersistenceEnabled = streamableHttp && !string.IsNullOrWhiteSpace(redisUrl);
+
+            if (sessionPersistenceEnabled)
+            {
+                // StackExchange.Redis's ConfigurationOptions.Parse expects "host:port[,opt=val,...]"
+                // form, NOT a URI like "redis://host:port/db". The rest of the stack uses the URI
+                // form (.env.example, docker-compose, the Python backend's redis-py), so normalize
+                // here before parsing — otherwise Parse keeps "redis://host" as the host name and
+                // the connection target becomes "redis://host:port/db:6379", which never resolves.
+                var redisConfigString = NormalizeRedisUrlForStackExchange(redisUrl!);
+
+                builder.Services.AddStackExchangeRedisCache(options =>
+                {
+                    var redisConfig = ConfigurationOptions.Parse(redisConfigString);
+                    redisConfig.AbortOnConnectFail = false;
+                    redisConfig.ConnectRetry = 3;
+                    redisConfig.ConnectTimeout = 2000;
+                    redisConfig.SyncTimeout = 2000;
+                    options.ConfigurationOptions = redisConfig;
+                    // MCP_REDIS_KEY_PREFIX namespaces this server's cache entries in Redis so
+                    // multiple stacks (parallel worktrees, blue/green deployments, multi-tenant
+                    // shared-Redis hosts) can share one Redis instance without colliding on keys.
+                    // Defaults to "mcp-server:" to preserve historical behaviour.
+                    options.InstanceName = builder.Configuration["MCP_REDIS_KEY_PREFIX"] ?? "mcp-server:";
+                });
+
+                // Resolve the migration-record TTL from config (issue #209). The previous
+                // hardcoded 2h sliding window expired recovery records long before the
+                // in-memory idle window (up to 10h in prod) released the session, so any
+                // session older than 2h was lost on restart. ResolveTtl sources an explicit
+                // MCP_SESSION_MIGRATION_TTL_SECONDS override, else falls back to the in-memory
+                // idle window (MCP_PLUGIN_IDLE_TIMEOUT_SECONDS), else a 10h default — always
+                // floored at the idle timeout so the recovery window can never be shorter than
+                // the in-memory session lifetime.
+                var sessionMigrationTtl = SessionMigrationHandler.ResolveTtl(
+                    builder.Configuration[SessionMigrationHandler.MigrationTtlEnvVar],
+                    builder.Configuration[SessionMigrationHandler.IdleTimeoutEnvVar]);
+
+                builder.Services.AddSingleton<ISessionMigrationHandler>(sp =>
+                    new SessionMigrationHandler(
+                        sp.GetRequiredService<IDistributedCache>(),
+                        sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
+                        sessionMigrationTtl));
+                mcpServerBuilder.WithDistributedCacheEventStreamStore();
+            }
+
+            // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
+
+            logger.Info($"Start listening on port: {dataArguments.Port} (bind: {dataArguments.Bind ?? "loopback"})");
+
+            // Bind IPv4 and IPv6 separately to avoid dual-stack socket issues on macOS. The bind
+            // address (D8: default loopback; --bind/MCP_BIND=any|0.0.0.0|<ip> for LAN/hosted deploys
+            // that nginx must reach) is forwarded to the library's bind-aware Kestrel overload.
+            builder.WebHost.UseKestrelForMcpPlugin(dataArguments.Port, dataArguments.Bind);
+
+            var app = builder.Build();
+
+            if (streamableHttp && !sessionPersistenceEnabled)
+            {
+                app.Logger.LogWarning(
+                    "REDIS_URL is not set — MCP sessions will NOT survive a server restart. "
+                    + "Configure Redis to enable Option B (issue #70).");
+            }
+
+            if (httpUnauthenticatedFallback)
+            {
+                app.Logger.LogWarning(
+                    "streamableHttp is running WITHOUT authentication (auth=none) because --auth-issuer/--public-url "
+                    + "were not configured. For a network-exposed deployment set --auth oauth with --auth-issuer and "
+                    + "--public-url (see README § Authentication). Pass --auth none explicitly to silence this warning.");
+            }
+
+            app.Logger.LogInformation(
+                "MCP auth mode: {AuthMode} (transport: {Transport}, bind: {Bind}).",
+                dataArguments.Authorization, dataArguments.ClientTransport, dataArguments.Bind ?? "loopback");
+
+            // Middleware ----------------------------------------------------------------
+            // ---------------------------------------------------------------------------
+
+            // Setup SignalR ----------------------------------------------------
+            app.UseToolCallCancellation();
+            app.UseMcpPluginServer(dataArguments);
+
+            // Setup MCP client -------------------------------------------------
+            if (dataArguments.ClientTransport == Consts.MCP.Server.TransportMethod.streamableHttp)
+            {
+                // Add a GET /help endpoint for informational message
+                app.MapGet("/help", () =>
+                {
+                    var header =
+                        "Author: Ivan Murzak (https://github.com/IvanMurzak)\n" +
+                        "Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)\n" +
+                        "Copyright (c) 2026 Ivan Murzak\n" +
+                        "Licensed under the Apache License, Version 2.0.\n" +
+                        "See the LICENSE file in the project root for more information.\n" +
+                        "\n" +
+                        "Use \"/\" endpoint to get connected to MCP server\n";
+                    return Results.Text(header, Consts.MimeType.TextPlain);
+                });
+            }
+
+            #region Print Logs
+            if (logger.IsEnabled(NLog.LogLevel.Debug))
+            {
+                var endpointDataSource = app.Services.GetRequiredService<Microsoft.AspNetCore.Routing.EndpointDataSource>();
+                foreach (var endpoint in endpointDataSource.Endpoints)
+                    logger.Debug($"Configured endpoint: {endpoint.DisplayName}");
+
+                app.Use(async (context, next) =>
+                {
+                    logger.Debug($"Request: {context.Request.Method} {context.Request.Path}");
+                    try
+                    {
+                        await next.Invoke();
+                        logger.Debug($"Response: {context.Response.StatusCode} ({context.Request.Method} {context.Request.Path})");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Optionally log as debug or ignore
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.Error(ex, $"Error occurred while processing request: {context.Request.Method} {context.Request.Path}");
+                        return;
+                    }
+                });
+            }
+            #endregion
+
+            return app;
         }
 
         /// <summary>
