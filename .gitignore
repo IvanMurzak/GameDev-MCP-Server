@@ -56,3 +56,6 @@ logs/
 # `.pipeline/.hooks/` stays tracked; only its runtime siblings are ignored.
 .pipeline/.runtime/
 .pipeline/.stats/
+
+# Python bytecode (scripts/)
+__pycache__/

@@ -16,6 +16,13 @@
 #   guard -> test -> build executables (7 signed zips) + NuGet + Docker Hub
 #         -> tag v<version> + GitHub Release (zips + SHA256SUMS) -> verify
 #
+# The guard job's FIRST check is the release dependency guard
+# (scripts/release_dependency_guard.py): a pre-release (`-` suffix, e.g. 8.14.0-dev.<sha>) or
+# unpublished NuGet pin of the server csproj and the props that feed it, a local restore feed
+# (Directory.Build.props / nuget.config, e.g. prerelease-packages/) or a Dockerfile that copies or
+# restores from one FAILS every run, dry runs included, before anything is built or published.
+# nuget.org being unreachable fails it too.
+#
 # Version source: the csproj <Version>; server.json's two `version` fields must
 # match it. Tag spelling: `v<version>` (e.g. v9.2.6), unchanged.
 #
@@ -52,7 +59,7 @@ permissions:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────
-  # Ref guard + version guard. Fails first, before any test or build.
+  # Dependency guard + ref guard + version guard. Fails first, before any test or build.
   # ────────────────────────────────────────────────────────────────────
   guard:
     runs-on: ubuntu-latest
@@ -61,6 +68,15 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Every NuGet pin the executables, the NuGet tool and the Docker image are built from must be a
+      # published nuget.org release, restored without a local feed. FAILS (dry runs included) while
+      # main builds against unreleased McpPlugin packages from prerelease-packages/.
+      - name: Release dependency guard (no pre-release / unpublished pins, no local feed)
+        run: python3 scripts/release_dependency_guard.py
+
       - name: Ref guard (a real release runs on main only)
         env:
           DRY_RUN: ${{ inputs.dry_run }}
@@ -71,9 +87,6 @@ jobs:
             echo "::error::A real release (dry_run=false) must be dispatched on refs/heads/main, not $GITHUB_REF."
             exit 1
           fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
 
       - name: Read version (csproj <Version>, server.json in lockstep)
         id: version

@@ -149,6 +149,12 @@ jobs:
               sys.exit(2)
           EOF
 
+      # Offline unit tests of the release dependency guard (a fake nuget.org; the guard itself runs
+      # only in release.yml, where it refuses pre-release pins and local feeds). After the chain
+      # resolver/feed steps, so a failure here still leaves a chain leg record.
+      - name: Release dependency guard unit tests
+        run: python3 -m unittest discover -s scripts/tests -v
+
       - name: Restore
         run: dotnet restore com.IvanMurzak.GameDev.MCP.Server.csproj
 
