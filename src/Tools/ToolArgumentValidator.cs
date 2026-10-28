@@ -29,6 +29,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
     /// </summary>
     public static class ToolArgumentValidator
     {
+        static readonly string[] AlternativeKeywords = { "anyOf", "oneOf" };
+
         /// <summary>
         /// Returns null when the arguments fit <paramref name="inputSchema"/>, otherwise an error naming
         /// every offending argument.
@@ -94,7 +96,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
                 return TypeNames(type);
 
             // "anyOf"/"oneOf" of plainly-typed alternatives (e.g. a nullable value): the union of their types.
-            foreach (var keyword in new[] { "anyOf", "oneOf" })
+            foreach (var keyword in AlternativeKeywords)
             {
                 if (!propertySchema.TryGetProperty(keyword, out var alternatives) || alternatives.ValueKind != JsonValueKind.Array)
                     continue;

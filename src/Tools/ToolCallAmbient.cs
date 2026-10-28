@@ -19,11 +19,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
     /// </summary>
     public static class ToolCallAmbient
     {
-        static readonly AsyncLocal<CancellationToken?> _cancellation = new AsyncLocal<CancellationToken?>();
+        static readonly AsyncLocal<CancellationToken> _cancellation = new AsyncLocal<CancellationToken>();
 
         public static CancellationToken Cancellation
         {
-            get => _cancellation.Value ?? CancellationToken.None;
+            get => _cancellation.Value;
             set => _cancellation.Value = value;
         }
     }

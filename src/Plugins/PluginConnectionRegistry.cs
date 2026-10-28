@@ -85,19 +85,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
         public PluginRole? TakeDeclared(string connectionId)
         {
             lock (_gate)
-            {
-                if (!_declared.TryGetValue(connectionId, out var role))
-                    return null;
-                _declared.Remove(connectionId);
-                return role;
-            }
+                return _declared.Remove(connectionId, out var role) ? role : null;
         }
 
-        /// <summary>Registers a new connection with its declared role (or <see cref="PluginRole.Unknown"/>).</summary>
-        public void Add(string connectionId, PluginRole role)
+        /// <summary>Registers a new connection with its role (or <see cref="PluginRole.Unknown"/>) and its plugin token.</summary>
+        public void Add(string connectionId, PluginRole role, string? token)
         {
             lock (_gate)
-                _connections[connectionId] = new Entry(connectionId, role, ++_sequence);
+                _connections[connectionId] = new Entry(role, token, ++_sequence);
         }
 
         /// <summary>The connection's role; <see cref="PluginRole.Unknown"/> for an unknown connection.</summary>
@@ -107,19 +102,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                 return _connections.TryGetValue(connectionId, out var entry) ? entry.Role : PluginRole.Unknown;
         }
 
-        public bool Contains(string connectionId)
-        {
-            lock (_gate)
-                return _connections.ContainsKey(connectionId);
-        }
-
         /// <summary>
-        /// Sets the role of a connection whose role was <see cref="PluginRole.Unknown"/>. Returns false (and
-        /// changes nothing) when the connection is gone or already has a role: a declared role wins over the
-        /// handshake guess.
+        /// Sets the role of a connection whose role was <see cref="PluginRole.Unknown"/> and returns its token.
+        /// False (and nothing changes) when the connection is gone or already has a role: a declared role wins
+        /// over the handshake guess.
         /// </summary>
-        public bool TryClassify(string connectionId, PluginRole role)
+        public bool TryClassify(string connectionId, PluginRole role, out string? token)
         {
+            token = null;
             if (role == PluginRole.Unknown)
                 return false;
             lock (_gate)
@@ -127,43 +117,36 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                 if (!_connections.TryGetValue(connectionId, out var entry) || entry.Role != PluginRole.Unknown)
                     return false;
                 entry.Role = role;
+                token = entry.Token;
                 return true;
             }
         }
 
-        /// <summary>Forgets a connection. Remembers when the last editor left (see <see cref="EditorLeftWithin"/>).</summary>
-        public void Remove(string connectionId)
+        /// <summary>
+        /// Forgets a connection and returns the role it had (null when it was not registered). Remembers when
+        /// the last editor left (see <see cref="EditorLeftWithin"/>).
+        /// </summary>
+        public PluginRole? Remove(string connectionId)
         {
             lock (_gate)
             {
                 _declared.Remove(connectionId);
-                if (!_connections.TryGetValue(connectionId, out var entry))
-                    return;
-                _connections.Remove(connectionId);
+                if (!_connections.Remove(connectionId, out var entry))
+                    return null;
                 if (entry.Role != PluginRole.Runtime)
                     _lastEditorDisconnect = _clock();
+                return entry.Role;
             }
-        }
-
-        /// <summary>The other connections with <paramref name="role"/>, oldest first.</summary>
-        public IReadOnlyList<string> OthersWithRole(string connectionId, PluginRole role)
-        {
-            lock (_gate)
-                return _connections.Values
-                    .Where(e => e.Role == role && !string.Equals(e.ConnectionId, connectionId, StringComparison.Ordinal))
-                    .OrderBy(e => e.Sequence)
-                    .Select(e => e.ConnectionId)
-                    .ToList();
         }
 
         /// <summary>The connections with <paramref name="role"/>, newest first.</summary>
         public IReadOnlyList<string> WithRole(PluginRole role)
         {
             lock (_gate)
-                return _connections.Values
-                    .Where(e => e.Role == role)
-                    .OrderByDescending(e => e.Sequence)
-                    .Select(e => e.ConnectionId)
+                return _connections
+                    .Where(pair => pair.Value.Role == role)
+                    .OrderByDescending(pair => pair.Value.Sequence)
+                    .Select(pair => pair.Key)
                     .ToList();
         }
 
@@ -176,15 +159,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
 
         sealed class Entry
         {
-            public Entry(string connectionId, PluginRole role, long sequence)
+            public Entry(PluginRole role, string? token, long sequence)
             {
-                ConnectionId = connectionId;
                 Role = role;
+                Token = token;
                 Sequence = sequence;
             }
 
-            public string ConnectionId { get; }
             public PluginRole Role { get; set; }
+            public string? Token { get; }
             public long Sequence { get; }
         }
     }

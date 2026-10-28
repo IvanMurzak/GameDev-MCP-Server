@@ -9,7 +9,6 @@
 */
 
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
@@ -17,6 +16,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.McpPlugin.Common.Hub.Client;
 using com.IvanMurzak.McpPlugin.Common.Model;
+using com.IvanMurzak.McpPlugin.Server;
 using com.IvanMurzak.McpPlugin.Server.Auth;
 using com.IvanMurzak.McpPlugin.Server.Strategy;
 using Microsoft.Extensions.Logging;
@@ -53,33 +53,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
         /// <summary>After a dropped call, a target that is still the same connection this long is taken as never having left.</summary>
         static readonly TimeSpan SameConnectionSettle = TimeSpan.FromSeconds(2);
 
-        readonly IClientToolHub _inner;
-        readonly Func<RequestCallTool, CancellationToken, Task<ResponseData<ResponseCallTool>>> _call;
+        readonly RemoteToolRunner _inner;
         readonly IMcpConnectionStrategy _strategy;
         readonly ILogger _logger;
-        readonly ConcurrentDictionary<string, JsonElement> _schemas = new ConcurrentDictionary<string, JsonElement>(StringComparer.Ordinal);
+        readonly TimeSpan _toolTimeout;
+        readonly TimeSpan _reconnectWait;
 
-        public GuardedToolHub(
-            IClientToolHub inner,
-            Func<RequestCallTool, CancellationToken, Task<ResponseData<ResponseCallTool>>> call,
-            IMcpConnectionStrategy strategy,
-            TimeSpan toolTimeout,
-            TimeSpan reconnectWait,
-            ILogger logger)
+        /// <summary>The input schemas of the last tool list, and the plugin connection that answered it.</summary>
+        volatile SchemaSnapshot? _schemas;
+
+        public GuardedToolHub(RemoteToolRunner inner, IMcpConnectionStrategy strategy, TimeSpan toolTimeout, TimeSpan reconnectWait, ILogger logger)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
-            _call = call ?? throw new ArgumentNullException(nameof(call));
             _strategy = strategy ?? throw new ArgumentNullException(nameof(strategy));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-            ToolTimeout = toolTimeout > TimeSpan.Zero ? toolTimeout : TimeSpan.FromMinutes(5);
-            ReconnectWait = reconnectWait < TimeSpan.Zero ? TimeSpan.Zero : reconnectWait;
+            _toolTimeout = toolTimeout > TimeSpan.Zero ? toolTimeout : TimeSpan.FromMinutes(5);
+            _reconnectWait = reconnectWait < TimeSpan.Zero ? TimeSpan.Zero : reconnectWait;
         }
-
-        /// <summary>The longest a whole tool call may take (the server's tool timeout).</summary>
-        public TimeSpan ToolTimeout { get; }
-
-        /// <summary>The longest the hub waits for a reloading plugin to come back.</summary>
-        public TimeSpan ReconnectWait { get; }
 
         public async Task<ResponseData<ResponseListTool[]>> RunListTool(RequestListTool request, CancellationToken cancellationToken = default)
         {
@@ -92,7 +82,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
         {
             var callerToken = ToolCallAmbient.Cancellation;
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(callerToken);
-            deadline.CancelAfter(ToolTimeout);
+            deadline.CancelAfter(_toolTimeout);
             var elapsed = Stopwatch.StartNew();
 
             try
@@ -101,11 +91,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
                 if (invalid != null)
                     return Fail(request, invalid, ResponseErrorKind.BadRequest, 400);
 
-                var reconnectDeadline = elapsed.Elapsed + ReconnectWait;
+                var reconnectDeadline = elapsed.Elapsed + _reconnectWait;
                 while (true)
                 {
                     var target = CurrentTarget();
-                    var response = await _call(request, deadline.Token);
+                    var response = await _inner.RunCallTool(request, deadline.Token);
 
                     if (IsServerTimeout(response))
                         return TimedOut(request, response.Message);
@@ -114,7 +104,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
                     {
                         if (elapsed.Elapsed >= reconnectDeadline)
                             return Fail(request,
-                                $"[plugin_reloading] The engine plugin kept refusing '{request.Name}' for {ReconnectWait.TotalSeconds:0} s " +
+                                $"[plugin_reloading] The engine plugin kept refusing '{request.Name}' for {_reconnectWait.TotalSeconds:0} s " +
                                 $"because it is reloading; the call was not run. Retry once the editor has finished reloading. Plugin: {response.Message}",
                                 ResponseErrorKind.Unavailable, 503);
                         _logger.LogInformation("Tool '{tool}' was refused by the reloading plugin without running; sending it again once the plugin is back.", request.Name);
@@ -124,7 +114,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
 
                     if (IsMaybeDelivered(response))
                     {
-                        var window = ReconnectWait < ToolTimeout - elapsed.Elapsed ? ReconnectWait : ToolTimeout - elapsed.Elapsed;
+                        var window = _reconnectWait < _toolTimeout - elapsed.Elapsed ? _reconnectWait : _toolTimeout - elapsed.Elapsed;
                         var back = await WaitForReconnectAsync(target, window, deadline.Token);
                         return Fail(request, back
                             ? $"[plugin_reconnected] The engine plugin disconnected while running '{request.Name}' (usually a script or " +
@@ -146,29 +136,38 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
 
         // ───────────────────────────── arguments ─────────────────────────────
 
+        /// <summary>
+        /// Validates against the last listed schemas. They are listed again (once) when there are none yet,
+        /// or when they came from an older plugin connection and either lack the tool or reject the call:
+        /// a reload may have changed the tools. A tool the current connection did not list is left to the plugin.
+        /// </summary>
         async Task<string?> ValidateArgumentsAsync(RequestCallTool request, CancellationToken cancellationToken)
         {
+            var schemas = _schemas;
             var fresh = false;
-            if (!_schemas.TryGetValue(request.Name, out var schema))
+            if (schemas == null)
             {
-                await RefreshSchemasAsync(cancellationToken);
+                schemas = await RefreshSchemasAsync(cancellationToken);
                 fresh = true;
-                if (!_schemas.TryGetValue(request.Name, out schema))
-                    return null; // unknown tool: the plugin answers that itself
             }
 
-            var problem = ToolArgumentValidator.Validate(request.Name, schema, request.Arguments);
-            if (problem == null || fresh)
+            var problem = Check(schemas, request, out var known);
+            if ((problem == null && known) || fresh || schemas == null || schemas.Target == CurrentTarget())
                 return problem;
 
-            // A remembered schema may predate a plugin reload: check against the current one before refusing.
-            await RefreshSchemasAsync(cancellationToken);
-            return _schemas.TryGetValue(request.Name, out schema)
-                ? ToolArgumentValidator.Validate(request.Name, schema, request.Arguments)
-                : null;
+            return Check(await RefreshSchemasAsync(cancellationToken), request, out _);
         }
 
-        async Task RefreshSchemasAsync(CancellationToken cancellationToken)
+        static string? Check(SchemaSnapshot? schemas, RequestCallTool request, out bool known)
+        {
+            known = false;
+            if (schemas == null || !schemas.ByName.TryGetValue(request.Name, out var schema))
+                return null;
+            known = true;
+            return ToolArgumentValidator.Validate(request.Name, schema, request.Arguments);
+        }
+
+        async Task<SchemaSnapshot?> RefreshSchemasAsync(CancellationToken cancellationToken)
         {
             try
             {
@@ -183,22 +182,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
                 // Validation is best effort: without a schema the plugin checks the arguments itself.
                 _logger.LogDebug(ex, "Could not list tools to validate arguments.");
             }
+            return _schemas;
         }
 
         void Remember(ResponseData<ResponseListTool[]>? response)
         {
             if (response?.Status != ResponseStatus.Success || response.Value == null)
                 return;
+            var byName = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
             foreach (var tool in response.Value)
             {
-                if (tool?.Name == null)
-                    continue;
-                if (tool.InputSchema is JsonElement schema && schema.ValueKind == JsonValueKind.Object)
-                    _schemas[tool.Name] = schema.Clone();
-                else
-                    _schemas.TryRemove(tool.Name, out _);
+                if (tool?.Name != null && tool.InputSchema.ValueKind == JsonValueKind.Object)
+                    byName[tool.Name] = tool.InputSchema.Clone();
             }
+            _schemas = new SchemaSnapshot(byName, CurrentTarget());
         }
+
+        sealed record SchemaSnapshot(IReadOnlyDictionary<string, JsonElement> ByName, string? Target);
 
         /// <summary>An error for the first argument (or the tool name) holding a lone UTF-16 surrogate, or null.</summary>
         internal static string? FindInvalidText(RequestCallTool request)
@@ -230,8 +230,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
             => response.Status == ResponseStatus.Error
                 && response.ErrorKind == ResponseErrorKind.Unavailable
                 && response.HttpStatusCode != MaybeDeliveredStatusCode
-                && (response.HttpStatusCode == 503
-                    || response.Message?.IndexOf(NotRunMarker, StringComparison.OrdinalIgnoreCase) >= 0);
+                && response.Message?.IndexOf(NotRunMarker, StringComparison.OrdinalIgnoreCase) >= 0;
 
         static bool IsMaybeDelivered(ResponseData<ResponseCallTool> response)
             => response.Status == ResponseStatus.Error
@@ -265,7 +264,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
 
         ResponseData<ResponseCallTool> TimedOut(RequestCallTool request, string? detail)
         {
-            var message = $"[tool_timeout] Tool '{request.Name}' did not finish within {ToolTimeout.TotalMilliseconds:0} ms (the server's tool timeout). " +
+            var message = $"[tool_timeout] Tool '{request.Name}' did not finish within {_toolTimeout.TotalMilliseconds:0} ms (the server's tool timeout). " +
                 "It was not re-sent; the engine may still be running it, or its main thread may be blocked (a modal dialog, " +
                 "an endless loop, a long import). Raise the limit with --tool-timeout=<ms> or MCP_PLUGIN_TOOL_TIMEOUT.";
             if (!string.IsNullOrEmpty(detail))

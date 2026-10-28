@@ -11,7 +11,6 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
-using com.IvanMurzak.McpPlugin.Common.Hub.Client;
 using com.IvanMurzak.McpPlugin.Common.Model;
 using com.IvanMurzak.McpPlugin.Server;
 using Microsoft.AspNetCore.SignalR;
@@ -53,17 +52,20 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
             return next(context);
         }
 
-        public ValueTask<object?> InvokeMethodAsync(HubInvocationContext invocationContext, Func<HubInvocationContext, ValueTask<object?>> next)
+        public async ValueTask<object?> InvokeMethodAsync(HubInvocationContext invocationContext, Func<HubInvocationContext, ValueTask<object?>> next)
         {
-            if (invocationContext.Hub is McpServerHub
+            var result = await next(invocationContext);
+            // Classified only after an accepted handshake: a refused plugin must not replace a working one.
+            if (invocationContext.Hub is McpServerHub hub
                 && invocationContext.HubMethodName == nameof(McpServerHub.PerformVersionHandshake)
-                && invocationContext.HubMethodArguments.FirstOrDefault() is RequestVersionHandshake handshake)
+                && invocationContext.HubMethodArguments.FirstOrDefault() is RequestVersionHandshake handshake
+                && result is VersionHandshakeResponse { Compatible: true })
             {
                 try
                 {
-                    var clients = invocationContext.Hub.Clients;
-                    _strategy.OnHandshake(typeof(McpServerHub), invocationContext.Context.ConnectionId, handshake.Environment,
-                        (id, reason) => _ = clients.Client(id).SendAsync(nameof(IClientDisconnectable.ForceDisconnect), reason));
+                    var clients = hub.Clients;
+                    _strategy.OnHandshake(invocationContext.Context.ConnectionId, handshake.Environment,
+                        (id, reason) => _ = clients.Client(id).ForceDisconnect(reason));
                 }
                 catch (Exception ex)
                 {
@@ -71,7 +73,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                     _logger.LogWarning(ex, "Could not classify plugin connection '{connectionId}'.", invocationContext.Context.ConnectionId);
                 }
             }
-            return next(invocationContext);
+            return result;
         }
 
         public async Task OnDisconnectedAsync(HubLifetimeContext context, Exception? exception, Func<HubLifetimeContext, Exception?, Task> next)

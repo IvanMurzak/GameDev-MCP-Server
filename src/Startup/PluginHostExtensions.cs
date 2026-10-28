@@ -41,25 +41,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
                 return services;
 
             services.AddSingleton(new PluginConnectionRegistry());
-            services.AddSingleton(sp =>
-            {
-                var strategy = new RoleAwareNoAuthStrategy(
-                    new NoAuthMcpStrategy(),
-                    sp.GetRequiredService<PluginConnectionRegistry>(),
-                    dataArguments.GetPluginReconnectWait(),
-                    sp.GetRequiredService<ILogger<RoleAwareNoAuthStrategy>>());
-                // Resolved at use: the catalog itself depends on the strategy.
-                strategy.CatalogMove = (runtimeId, editorId) =>
-                {
-                    var catalog = sp.GetService<PluginCatalogCache>();
-                    if (catalog == null)
-                        return;
-                    catalog.OnPluginDisconnected(runtimeId);
-                    if (editorId != null)
-                        catalog.OnPluginConnected(editorId);
-                };
-                return strategy;
-            });
+            services.AddSingleton(sp => new RoleAwareNoAuthStrategy(
+                new NoAuthMcpStrategy(),
+                sp.GetRequiredService<PluginConnectionRegistry>(),
+                dataArguments.GetPluginReconnectWait(),
+                () => sp.GetService<PluginCatalogCache>(),
+                sp.GetRequiredService<ILogger<RoleAwareNoAuthStrategy>>()));
             services.AddSingleton<IMcpConnectionStrategy>(sp => sp.GetRequiredService<RoleAwareNoAuthStrategy>());
             services.AddSingleton<PluginRoleHubFilter>();
             services.Configure<HubOptions>(options => options.AddFilter<PluginRoleHubFilter>());
@@ -71,10 +58,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
         {
             builder.Services.AddSingleton(sp =>
             {
-                var runner = sp.GetRequiredService<RemoteToolRunner>();
                 return new GuardedToolHub(
-                    runner,
-                    runner.RunCallTool,
+                    sp.GetRequiredService<RemoteToolRunner>(),
                     sp.GetRequiredService<IMcpConnectionStrategy>(),
                     TimeSpan.FromMilliseconds(dataArguments.GetToolTimeoutMs()),
                     dataArguments.GetPluginReconnectWait(),
