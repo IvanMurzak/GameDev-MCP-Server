@@ -25,8 +25,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
               "ratio":{"type":"number"},
               "dry_run":{"type":["boolean","null"]},
               "target":{"anyOf":[{"type":"object"},{"type":"null"}]},
-              "complex":{"$ref":"#/$defs/Thing"}
-            },"required":["query"]}
+              "complex":{"$ref":"#/$defs/Thing"},
+              "log_type":{"type":"string","enum":["Log","Warning","Error"]},
+              "label":{"type":["string","null"]}
+            },"required":["query","label"]}
             """;
 
         static string? Validate(string argumentsJson, StringComparer? comparer = null)
@@ -39,22 +41,25 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         }
 
         [Theory]
-        [InlineData("{\"query\":\"x\"}")]
-        [InlineData("{\"query\":\"x\",\"max_targets\":5}")]
-        [InlineData("{\"query\":\"x\",\"max_targets\":\"5\"}")] // the plugin reads numbers from strings
-        [InlineData("{\"query\":\"x\",\"max_targets\":5.0}")]
-        [InlineData("{\"query\":\"x\",\"ratio\":0.5,\"dry_run\":true}")]
-        [InlineData("{\"query\":\"x\",\"dry_run\":null,\"target\":null}")]
-        [InlineData("{\"query\":\"x\",\"target\":{\"a\":1}}")]
-        [InlineData("{\"query\":\"x\",\"complex\":123,\"unknown\":[1]}")] // not stated plainly: left to the plugin
-        [InlineData("{\"query\":\"x\",\"max_targets\":null}")] // a null optional argument means "not given"
+        [InlineData("{\"query\":\"x\",\"label\":null}")] // a required argument whose schema allows null
+        [InlineData("{\"query\":{\"a\":1},\"label\":\"l\"}")] // the plugin passes an object to a string as its JSON text
+        [InlineData("{\"query\":\"x\",\"label\":\"l\",\"dry_run\":1}")] // the plugin reads a boolean from a number
+        [InlineData("{\"query\":\"x\",\"label\":\"l\",\"log_type\":2}")] // ... and an enum from its number
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":5}")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":\"5\"}")] // the plugin reads numbers from strings
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":5.0}")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"ratio\":0.5,\"dry_run\":true}")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"dry_run\":null,\"target\":null}")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"target\":{\"a\":1}}")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"complex\":123,\"unknown\":[1]}")] // not stated plainly: left to the plugin
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":null}")] // a null optional argument means "not given"
         public void ValidArguments_Pass(string arguments)
             => Assert.Null(Validate(arguments));
 
         [Fact]
         public void MissingRequired_NamesTheArgumentAndItsType()
         {
-            var error = Validate("{}");
+            var error = Validate("{\"label\":\"l\"}");
             Assert.Equal("[invalid_params] Invalid params for tool 'rql-query': missing required argument 'query' (a string).", error);
         }
 
@@ -65,14 +70,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public void NumberForString_IsRejected()
         {
-            var error = Validate("{\"query\":123}");
+            var error = Validate("{\"query\":123,\"label\":\"l\"}");
             Assert.Equal("[invalid_params] Invalid params for tool 'rql-query': argument 'query' must be a string, got a number (123).", error);
         }
 
         [Theory]
-        [InlineData("{\"query\":\"x\",\"max_targets\":\"abc\"}", "argument 'max_targets' must be an integer, got a string")]
-        [InlineData("{\"query\":\"x\",\"max_targets\":1.5}", "argument 'max_targets' must be an integer, got a number (1.5)")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":\"abc\"}", "argument 'max_targets' must be an integer, got a string")]
+        [InlineData("{\"label\":\"l\",\"query\":\"x\",\"max_targets\":1.5}", "argument 'max_targets' must be an integer, got a number (1.5)")]
         [InlineData("{\"query\":\"x\",\"dry_run\":\"maybe\"}", "argument 'dry_run' must be a boolean or null, got a string")]
+        [InlineData("{\"query\":\"x\",\"log_type\":true}", "argument 'log_type' must be a string, got a boolean (true)")]
         [InlineData("{\"query\":\"x\",\"target\":7}", "argument 'target' must be an object or null, got a number (7)")]
         public void WrongType_IsRejected(string arguments, string expected)
             => Assert.Contains(expected, Validate(arguments));
@@ -80,14 +86,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public void EveryProblem_IsListed()
         {
-            var error = Validate("{\"max_targets\":true}");
+            var error = Validate("{\"label\":\"l\",\"max_targets\":true}");
             Assert.Contains("missing required argument 'query'", error);
             Assert.Contains("argument 'max_targets' must be an integer, got a boolean (true)", error);
         }
 
         [Fact]
         public void ArgumentNames_MatchCaseInsensitively_LikeTheRestApi()
-            => Assert.Null(Validate("{\"Query\":\"x\",\"MAX_TARGETS\":3}", StringComparer.OrdinalIgnoreCase));
+            => Assert.Null(Validate("{\"Query\":\"x\",\"Label\":\"l\",\"MAX_TARGETS\":3}", StringComparer.OrdinalIgnoreCase));
 
         [Fact]
         public void SchemaWithoutProperties_PassesAnything()

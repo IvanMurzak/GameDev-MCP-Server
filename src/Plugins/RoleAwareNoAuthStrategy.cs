@@ -11,6 +11,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using com.IvanMurzak.McpPlugin.Common;
 using com.IvanMurzak.McpPlugin.Common.Model;
 using com.IvanMurzak.McpPlugin.Common.Utils;
@@ -36,8 +37,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
     ///   <see cref="PluginConnectionRegistry.RoleQueryKey"/>; otherwise it is decided at the version
     ///   handshake (<see cref="OnHandshake"/>), and the replacement waits until then.</item>
     /// </list>
-    /// Only editors enter the library's plugin list (<see cref="ClientUtils"/>), and a connection of unknown
-    /// role only once its handshake shows it is an editor, so the remembered tool lists
+    /// Only editors enter the library's plugin list (<see cref="ClientUtils"/>), a connection of unknown role
+    /// only once its handshake shows it is an editor, so the remembered tool lists
     /// (<see cref="PluginCatalogCache"/>) stay the editor's.
     /// </summary>
     public sealed class RoleAwareNoAuthStrategy : IMcpConnectionStrategy
@@ -49,6 +50,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
         readonly IMcpConnectionStrategy _inner;
         readonly Func<PluginCatalogCache?> _catalog;
         readonly ILogger _logger;
+        int _runtimeServed;
 
         /// <param name="catalog">The library's remembered lists, resolved at use (the catalog itself depends on the strategy).</param>
         public RoleAwareNoAuthStrategy(IMcpConnectionStrategy inner, PluginConnectionRegistry registry, TimeSpan editorReconnectWindow,
@@ -80,13 +82,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
         public void OnPluginConnected(Type hubType, string connectionId, string? token, ILogger logger, Action<string, string?> disconnectClient)
         {
             var role = Registry.TakeDeclared(connectionId) ?? PluginRole.Unknown;
-            Registry.Add(connectionId, role, token);
+            var replaced = Registry.Add(connectionId, role, token);
             logger.LogInformation("Plugin connection '{0}' connected (role: {1}).", connectionId, Describe(role));
 
-            if (role == PluginRole.Editor)
+            if (role == PluginRole.Editor && !replaced.Contains(connectionId))
                 ClientUtils.AddClient(HubType, connectionId, logger, token);
-            if (role != PluginRole.Unknown)
-                ReplaceOthers(connectionId, role, disconnectClient);
+            Disconnect(replaced, connectionId, role, disconnectClient);
         }
 
         /// <summary>
@@ -96,45 +97,48 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
         public void OnHandshake(string connectionId, string? environment, Action<string, string?> disconnectClient)
         {
             var role = PluginConnectionRegistry.RoleFromEnvironment(environment);
-            if (!Registry.TryClassify(connectionId, role, out var token))
+            if (!Registry.TryClassify(connectionId, role, out var token, out var replaced))
                 return;
 
             _logger.LogInformation("Plugin connection '{0}' is {1} (handshake environment '{2}').", connectionId, Describe(role), environment);
-            ReplaceOthers(connectionId, role, disconnectClient);
-            if (role == PluginRole.Editor)
+            if (role == PluginRole.Editor && !replaced.Contains(connectionId))
             {
                 // Now known to be the editor: into the library's plugin list, and its remembered lists come back.
                 ClientUtils.AddClient(HubType, connectionId, _logger, token);
-                _catalog()?.OnPluginConnected(connectionId);
+                var catalog = _catalog();
+                // Agents may have listed the game's tools while it stood in for the editor: forward the editor's next tool change.
+                if (Interlocked.Exchange(ref _runtimeServed, 0) == 1)
+                    catalog?.NoteToolListMissed();
+                catalog?.OnPluginConnected(connectionId);
             }
+            Disconnect(replaced, connectionId, role, disconnectClient);
         }
 
-        void ReplaceOthers(string connectionId, PluginRole role, Action<string, string?> disconnectClient)
+        void Disconnect(IReadOnlyList<string> replaced, string connectionId, PluginRole role, Action<string, string?> disconnectClient)
         {
-            foreach (var otherId in Registry.WithRole(role))
+            foreach (var id in replaced)
             {
-                if (otherId == connectionId)
-                    continue;
-                _logger.LogInformation("auth=none: disconnecting older {0} connection '{1}' (replaced by '{2}').", Describe(role), otherId, connectionId);
-                // Forget it now so routing cannot pick it before its disconnect arrives.
-                Registry.Remove(otherId);
+                _logger.LogInformation("auth=none: disconnecting {0} connection '{1}' (replaced by a newer one).", Describe(role), id);
                 if (role == PluginRole.Editor)
-                    ClientUtils.RemoveClient(HubType, otherId, _logger);
-                disconnectClient(otherId, string.Format(ReplacedReason, Describe(role)));
+                    ClientUtils.RemoveClient(HubType, id, _logger);
+                disconnectClient(id, string.Format(ReplacedReason, Describe(role)));
             }
         }
 
         public void OnPluginDisconnected(Type hubType, string connectionId, ILogger logger)
         {
-            if (Registry.Remove(connectionId) == PluginRole.Editor)
+            // Not only for a known editor: a connection replaced while it was being added may still be listed.
+            if (Registry.Remove(connectionId) != PluginRole.Runtime && ClientUtils.GetAllConnectionIds(HubType).Contains(connectionId))
                 ClientUtils.RemoveClient(HubType, connectionId, logger);
         }
 
         public string? ResolveConnectionId(string? token, int retryOffset)
         {
-            var targets = RoutingTargets();
+            var targets = RoutingTargets(out var runtime);
             if (targets.Count == 0)
                 return null;
+            if (runtime)
+                Interlocked.Exchange(ref _runtimeServed, 1);
 
             var byToken = ClientUtils.GetConnectionIdByToken(token);
             if (byToken != null && targets.Contains(byToken))
@@ -143,26 +147,26 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
             return targets[Math.Abs(retryOffset) % targets.Count];
         }
 
-        /// <summary>Editors, else connections of unknown role (not handshaken yet); newest first.</summary>
-        IReadOnlyList<string> EditorCandidates()
+        /// <summary>
+        /// The editors, newest first; else, unless an editor left within <see cref="EditorReconnectWindow"/>,
+        /// the runtimes. A connection whose role is not known yet (before its handshake) is never a target:
+        /// it may be a game, and the handshake follows within milliseconds.
+        /// </summary>
+        IReadOnlyList<string> RoutingTargets(out bool runtime)
         {
+            runtime = false;
             var editors = Registry.WithRole(PluginRole.Editor);
-            return editors.Count > 0 ? editors : Registry.WithRole(PluginRole.Unknown);
-        }
-
-        /// <summary>The editor candidates, else (no editor recently) runtimes; newest first.</summary>
-        IReadOnlyList<string> RoutingTargets()
-        {
-            var editors = EditorCandidates();
             if (editors.Count > 0 || Registry.EditorLeftWithin(EditorReconnectWindow))
                 return editors;
-            return Registry.WithRole(PluginRole.Runtime);
+            var runtimes = Registry.WithRole(PluginRole.Runtime);
+            runtime = runtimes.Count > 0;
+            return runtimes;
         }
 
         /// <summary>A runtime's list changes are not forwarded to agents while they are routed to an editor.</summary>
         public bool ShouldNotifySession(string pluginConnectionId, string sessionId)
         {
-            if (Registry.GetRole(pluginConnectionId) == PluginRole.Runtime && EditorCandidates().Count > 0)
+            if (Registry.GetRole(pluginConnectionId) == PluginRole.Runtime && Registry.WithRole(PluginRole.Editor).Count > 0)
                 return false;
             return _inner.ShouldNotifySession(pluginConnectionId, sessionId);
         }

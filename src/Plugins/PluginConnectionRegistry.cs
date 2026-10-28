@@ -88,11 +88,17 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                 return _declared.Remove(connectionId, out var role) ? role : null;
         }
 
-        /// <summary>Registers a new connection with its role (or <see cref="PluginRole.Unknown"/>) and its plugin token.</summary>
-        public void Add(string connectionId, PluginRole role, string? token)
+        /// <summary>
+        /// Registers a new connection with its role (or <see cref="PluginRole.Unknown"/>) and its plugin token.
+        /// Returns the connections it replaces (see <see cref="TryClassify"/>); none for an unknown role.
+        /// </summary>
+        public IReadOnlyList<string> Add(string connectionId, PluginRole role, string? token)
         {
             lock (_gate)
+            {
                 _connections[connectionId] = new Entry(role, token, ++_sequence);
+                return role == PluginRole.Unknown ? Array.Empty<string>() : ReplaceLocked(connectionId, role);
+            }
         }
 
         /// <summary>The connection's role; <see cref="PluginRole.Unknown"/> for an unknown connection.</summary>
@@ -103,13 +109,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
         }
 
         /// <summary>
-        /// Sets the role of a connection whose role was <see cref="PluginRole.Unknown"/> and returns its token.
-        /// False (and nothing changes) when the connection is gone or already has a role: a declared role wins
-        /// over the handshake guess.
+        /// Sets the role of a connection whose role was <see cref="PluginRole.Unknown"/>, returning its token and
+        /// the connections it replaces, which are forgotten here: every older connection of the same role, or
+        /// the connection itself when a newer one of that role is already there. False (and nothing changes)
+        /// when the connection is gone or already has a role: a declared role wins over the handshake guess.
         /// </summary>
-        public bool TryClassify(string connectionId, PluginRole role, out string? token)
+        public bool TryClassify(string connectionId, PluginRole role, out string? token, out IReadOnlyList<string> replaced)
         {
             token = null;
+            replaced = Array.Empty<string>();
             if (role == PluginRole.Unknown)
                 return false;
             lock (_gate)
@@ -118,8 +126,21 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                     return false;
                 entry.Role = role;
                 token = entry.Token;
+                replaced = ReplaceLocked(connectionId, role);
                 return true;
             }
+        }
+
+        IReadOnlyList<string> ReplaceLocked(string connectionId, PluginRole role)
+        {
+            var sequence = _connections[connectionId].Sequence;
+            var others = _connections.Where(pair => pair.Value.Role == role && pair.Key != connectionId).ToList();
+            var replaced = others.Any(pair => pair.Value.Sequence > sequence)
+                ? new List<string> { connectionId } // a newer connection of this role is already registered
+                : others.Select(pair => pair.Key).ToList();
+            foreach (var id in replaced)
+                _connections.Remove(id);
+            return replaced;
         }
 
         /// <summary>
@@ -133,7 +154,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                 _declared.Remove(connectionId);
                 if (!_connections.Remove(connectionId, out var entry))
                     return null;
-                if (entry.Role != PluginRole.Runtime)
+                if (entry.Role == PluginRole.Editor)
                     _lastEditorDisconnect = _clock();
                 return entry.Role;
             }
@@ -150,7 +171,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Plugins
                     .ToList();
         }
 
-        /// <summary>True when an editor (or a connection of unknown role) disconnected less than <paramref name="window"/> ago.</summary>
+        /// <summary>True when an editor disconnected less than <paramref name="window"/> ago.</summary>
         public bool EditorLeftWithin(TimeSpan window)
         {
             lock (_gate)

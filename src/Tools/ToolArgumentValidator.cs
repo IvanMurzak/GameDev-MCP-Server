@@ -22,9 +22,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
     /// names a JSON <c>type</c> has that type. Anything the schema does not state plainly
     /// (<c>$ref</c>, untyped, unknown keywords, extra arguments) is left to the plugin.
     /// <para>
-    /// Lenient where the plugin's deserializer is (it reads numbers from strings): a numeric string passes
-    /// for <c>integer</c>/<c>number</c> and <c>"true"</c>/<c>"false"</c> for <c>boolean</c>. A number or a
-    /// boolean never passes for <c>string</c>.
+    /// Lenient where the plugin's deserializer (ReflectorNet) is: a numeric string passes for
+    /// <c>integer</c>/<c>number</c>, a number or <c>"true"</c>/<c>"false"</c> for <c>boolean</c>, an object or
+    /// array for <c>string</c> (passed as its JSON text) and an integer for a string <c>enum</c>. A plain number
+    /// or boolean never passes for <c>string</c>.
     /// </para>
     /// </summary>
     public static class ToolArgumentValidator
@@ -55,11 +56,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
             var problems = new List<string>();
             foreach (var name in required)
             {
-                if (!TryGetArgument(arguments, name, out var value) || value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
+                var allowed = properties.HasValue && TryGetProperty(properties.Value, name, out var propSchema)
+                    ? AllowedTypes(propSchema)
+                    : null;
+                var present = TryGetArgument(arguments, name, out var value) && value.ValueKind != JsonValueKind.Undefined;
+                // An explicit null passes for a required argument whose schema allows null; the type check below covers the rest.
+                if (!present || (value.ValueKind == JsonValueKind.Null && allowed?.Contains("null") != true))
                 {
-                    var expected = properties.HasValue && TryGetProperty(properties.Value, name, out var propSchema)
-                        ? DescribeTypes(AllowedTypes(propSchema))
-                        : null;
+                    var expected = DescribeTypes(allowed);
                     problems.Add(expected == null
                         ? $"missing required argument '{name}'"
                         : $"missing required argument '{name}' ({expected})");
@@ -76,7 +80,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
                     if (value.ValueKind is JsonValueKind.Null or JsonValueKind.Undefined)
                         continue; // a null required argument is reported above; a null optional one means "not given"
                     var allowed = AllowedTypes(propSchema);
-                    if (allowed == null || allowed.Any(type => Matches(value, type)))
+                    if (allowed == null || allowed.Any(type => Matches(value, type, propSchema)))
                         continue;
                     problems.Add($"argument '{argument.Key}' must be {DescribeTypes(allowed)}, got {Describe(value)}");
                 }
@@ -134,13 +138,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tools
         static bool IsKnownType(string? type)
             => type is "string" or "integer" or "number" or "boolean" or "object" or "array" or "null";
 
-        static bool Matches(JsonElement value, string type) => type switch
+        static bool Matches(JsonElement value, string type, JsonElement propertySchema) => type switch
         {
-            "string" => value.ValueKind == JsonValueKind.String,
+            // The plugin passes an object/array to a string parameter as its JSON text, and reads an enum from its number.
+            "string" => value.ValueKind is JsonValueKind.String or JsonValueKind.Object or JsonValueKind.Array
+                || (value.ValueKind == JsonValueKind.Number && propertySchema.TryGetProperty("enum", out _) && IsInteger(value)),
             "integer" => IsInteger(value),
             "number" => value.ValueKind == JsonValueKind.Number
                 || (value.ValueKind == JsonValueKind.String && double.TryParse(value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out _)),
-            "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False or JsonValueKind.Number
                 || (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out _)),
             "object" => value.ValueKind == JsonValueKind.Object,
             "array" => value.ValueKind == JsonValueKind.Array,

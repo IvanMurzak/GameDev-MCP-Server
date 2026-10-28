@@ -51,25 +51,48 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
         public HttpClient Http { get; }
         public IServiceProvider Services => _app.Services;
 
+        /// <summary>
+        /// Starts the server. The defaults below are passed explicitly so a developer's MCP_* / REDIS_URL
+        /// environment cannot change the tests; <paramref name="extraArgs"/> override them.
+        /// </summary>
         public static async Task<ServerHarness> StartAsync(params string[] extraArgs)
         {
-            var port = FreePort();
-            var args = new List<string>
+            for (var attempt = 1; ; attempt++)
             {
-                $"--port={port}",
-                "--client-transport=streamableHttp",
-                "--authorization=none",
-            };
-            args.AddRange(extraArgs);
-            var argArray = args.ToArray();
-            var app = Program.BuildApp(argArray, new DataArguments(argArray), httpUnauthenticatedFallback: false, NLog.LogManager.GetLogger("tests"));
-            await app.StartAsync();
-            return new ServerHarness(app, port);
+                var port = FreePort();
+                var args = new List<string>
+                {
+                    $"--port={port}",
+                    "--client-transport=streamableHttp",
+                    "--authorization=none",
+                    "--tool-timeout=300000",
+                    "--plugin-reconnect-wait-seconds=60",
+                    "--REDIS_URL=",
+                };
+                args.AddRange(extraArgs); // later values win
+                var argArray = args.ToArray();
+                var app = Program.BuildApp(argArray, new DataArguments(argArray), httpUnauthenticatedFallback: false, NLog.LogManager.GetLogger("tests"));
+                try
+                {
+                    await app.StartAsync();
+                    return new ServerHarness(app, port);
+                }
+                catch (System.IO.IOException) when (attempt < 3)
+                {
+                    await app.DisposeAsync(); // the port was taken between the probe and the bind: try another
+                }
+                catch
+                {
+                    await app.DisposeAsync();
+                    throw;
+                }
+            }
         }
 
         public FakePlugin NewPlugin(string name, string environment, string? declaredRole = null,
-            Func<FakePlugin, com.IvanMurzak.McpPlugin.Common.Model.RequestCallTool, Task<com.IvanMurzak.McpPlugin.Common.Model.ResponseData<com.IvanMurzak.McpPlugin.Common.Model.ResponseCallTool>>>? onCall = null)
-            => new FakePlugin(Port, name, environment, declaredRole, onCall);
+            Func<FakePlugin, com.IvanMurzak.McpPlugin.Common.Model.RequestCallTool, Task<com.IvanMurzak.McpPlugin.Common.Model.ResponseData<com.IvanMurzak.McpPlugin.Common.Model.ResponseCallTool>>>? onCall = null,
+            string? apiVersion = null)
+            => new FakePlugin(Port, name, environment, declaredRole, onCall, apiVersion);
 
         // ───────────────────────────── MCP over streamable HTTP ─────────────────────────────
 
@@ -80,7 +103,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
         public async Task<JsonNode> McpRawAsync(string body, CancellationToken cancellationToken = default)
         {
             await EnsureMcpSessionAsync(cancellationToken);
-            var response = await PostMcpAsync(body, cancellationToken);
+            using var response = await PostMcpAsync(body, cancellationToken);
             return await ReadJsonRpcAsync(response, cancellationToken);
         }
 
@@ -111,7 +134,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
         {
             if (_sessionId != null)
                 return;
-            var init = await PostMcpAsync(JsonSerializer.Serialize(new
+            using var init = await PostMcpAsync(JsonSerializer.Serialize(new
             {
                 jsonrpc = "2.0",
                 id = 1,
@@ -126,8 +149,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
             init.EnsureSuccessStatusCode();
             _sessionId = init.Headers.TryGetValues("Mcp-Session-Id", out var values) ? values.FirstOrDefault() : null;
             await ReadJsonRpcAsync(init, cancellationToken);
-            var initialized = await PostMcpAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", cancellationToken);
-            initialized.Dispose();
+            using var initialized = await PostMcpAsync("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", cancellationToken);
         }
 
         async Task<HttpResponseMessage> PostMcpAsync(string body, CancellationToken cancellationToken)

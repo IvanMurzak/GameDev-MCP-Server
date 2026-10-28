@@ -10,7 +10,6 @@
 
 using System;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
@@ -89,9 +88,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         public async Task HungTool_ReturnsATimeoutErrorAtTheToolTimeout()
         {
             await using var server = await ServerHarness.StartAsync("--tool-timeout=1500");
-            await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: async (_, request) =>
+            await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: async (plugin, request) =>
             {
-                await Task.Delay(Timeout.Infinite); // a blocked engine main thread
+                await Task.Delay(Timeout.Infinite, plugin.Disposed); // a blocked engine main thread
                 return FakePlugin.Success(request, "never");
             });
             await editor.StartAsync();
@@ -106,7 +105,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task DeferredCompletionThatNeverArrives_EndsAtTheSameDeadline()
         {
-            await using var server = await ServerHarness.StartAsync("--tool-timeout=1500");
+            await using var server = await ServerHarness.StartAsync("--tool-timeout=3000");
             await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: (_, request)
                 => Task.FromResult(ResponseCallTool.Processing("queued").SetRequestID(request.RequestID).Pack(request.RequestID)));
             await editor.StartAsync();
@@ -115,8 +114,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var (status, body) = await server.RestCallAsync("echo", "{}");
             Assert.Equal(504, status);
             Assert.StartsWith("[tool_timeout]", body!["error"]!.GetValue<string>());
-            // One deadline for the whole call, not one for the send and another for the deferred completion.
-            Assert.True(watch.Elapsed < TimeSpan.FromMilliseconds(2900), $"took {watch.Elapsed}");
+            // One deadline for the whole call: the library alone would add a second full timeout after "processing".
+            Assert.True(watch.Elapsed >= TimeSpan.FromMilliseconds(2900), $"took {watch.Elapsed}");
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"took {watch.Elapsed}");
         }
 
         // ───────────────────────────── plugin reloads ─────────────────────────────
@@ -125,22 +125,48 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             "Godot is about to reload the project's C# assembly (the built DLL changed), so this call was not run. " +
             "Retry in a few seconds, once the plugin has reconnected.";
 
+        /// <summary>Plays a plugin reload from inside a tool call: drop the connection, then connect a new plugin.</summary>
+        sealed class Reload
+        {
+            readonly ServerHarness _server;
+            Task<FakePlugin>? _task;
+
+            public Reload(ServerHarness server) => _server = server;
+
+            public void Start(FakePlugin plugin, TimeSpan delayBeforeStop)
+            {
+                _task ??= Task.Run(async () =>
+                {
+                    await Task.Delay(delayBeforeStop);
+                    await plugin.StopAsync();
+                    await Task.Delay(300);
+                    var reloaded = _server.NewPlugin("reloaded", "Godot 4.5");
+                    await reloaded.StartAsync();
+                    return reloaded;
+                });
+            }
+
+            public async Task<FakePlugin> PluginAsync()
+                => await (_task ?? throw new InvalidOperationException("no reload started")).WaitAsync(TimeSpan.FromSeconds(15));
+
+            public async Task DisposeAsync()
+            {
+                if (_task == null)
+                    return;
+                try { await (await _task.WaitAsync(TimeSpan.FromSeconds(15))).DisposeAsync(); }
+                catch (Exception) { /* the test already failed on it */ }
+            }
+        }
+
         [Fact]
-        public async Task CallRefusedWithoutRunning_IsSentAgainOnceThePluginIsBack()
+        public async Task CallDeclaredNotExecuted_IsSentAgainOnceThePluginIsBack()
         {
             await using var server = await ServerHarness.StartAsync();
-            FakePlugin? reloaded = null;
+            var reload = new Reload(server);
             await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: (plugin, request) =>
             {
-                _ = Task.Run(async () =>
-                {
-                    await Task.Delay(100);
-                    await plugin.StopAsync(); // the reload
-                    await Task.Delay(300);
-                    reloaded = server.NewPlugin("reloaded", "Godot 4.5");
-                    await reloaded.StartAsync();
-                });
-                return Task.FromResult(FakePlugin.Error(request, GodotPendingRefusal, ResponseErrorKind.Unavailable));
+                reload.Start(plugin, TimeSpan.FromMilliseconds(100));
+                return Task.FromResult(FakePlugin.Error(request, "Reloading; the call was not executed.", ResponseErrorKind.Unavailable, 503));
             });
             await editor.StartAsync();
 
@@ -150,12 +176,39 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 Assert.False(isError, text);
                 Assert.Equal("reloaded:echo", text);
                 Assert.Single(editor.Calls);
-                Assert.Single(reloaded!.Calls);
+                Assert.Single((await reload.PluginAsync()).Calls);
             }
             finally
             {
-                if (reloaded != null)
-                    await reloaded.DisposeAsync();
+                await reload.DisposeAsync();
+            }
+        }
+
+        [Fact]
+        public async Task ReloadGateRefusal_IsNotResent_AndSaysWhenThePluginIsBack()
+        {
+            // Godot's refusal text alone does not prove the call never started, so it is reported, not re-sent.
+            await using var server = await ServerHarness.StartAsync();
+            var reload = new Reload(server);
+            await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: (plugin, request) =>
+            {
+                reload.Start(plugin, TimeSpan.FromMilliseconds(100));
+                return Task.FromResult(FakePlugin.Error(request, GodotPendingRefusal, ResponseErrorKind.Unavailable));
+            });
+            await editor.StartAsync();
+
+            try
+            {
+                var (status, body) = await server.RestCallAsync("echo", "{}").WaitAsync(TimeSpan.FromSeconds(30));
+                Assert.Equal(503, status);
+                var error = body!["error"]!.GetValue<string>();
+                Assert.StartsWith("[plugin_reloading]", error);
+                Assert.Contains("is connected again", error);
+                Assert.Empty((await reload.PluginAsync()).Calls);
+            }
+            finally
+            {
+                await reload.DisposeAsync();
             }
         }
 
@@ -163,17 +216,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         public async Task CallDroppedAfterSending_IsNotResent_AndSaysThePluginIsBack()
         {
             await using var server = await ServerHarness.StartAsync();
-            FakePlugin? reloaded = null;
+            var reload = new Reload(server);
             await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: async (plugin, request) =>
             {
-                _ = Task.Run(async () =>
-                {
-                    await plugin.StopAsync(); // reload starts while the call runs
-                    await Task.Delay(300);
-                    reloaded = server.NewPlugin("reloaded", "Godot 4.5");
-                    await reloaded.StartAsync();
-                });
-                await Task.Delay(Timeout.Infinite);
+                reload.Start(plugin, TimeSpan.Zero); // the reload starts while the call runs
+                await Task.Delay(Timeout.Infinite, plugin.Disposed);
                 return FakePlugin.Success(request, "never");
             });
             await editor.StartAsync();
@@ -184,14 +231,29 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 Assert.Equal(502, status);
                 Assert.StartsWith("[plugin_reconnected]", body!["error"]!.GetValue<string>());
                 Assert.Single(editor.Calls);
-                Assert.NotNull(reloaded);
-                Assert.Empty(reloaded!.Calls); // never re-run a call that may have run
+                Assert.Empty((await reload.PluginAsync()).Calls); // never re-run a call that may have run
             }
             finally
             {
-                if (reloaded != null)
-                    await reloaded.DisposeAsync();
+                await reload.DisposeAsync();
             }
+        }
+
+        [Fact]
+        public async Task CallDroppedAndPluginNeverReturns_SaysSo()
+        {
+            await using var server = await ServerHarness.StartAsync("--plugin-reconnect-wait-seconds=2");
+            await using var editor = server.NewPlugin("editor", "Godot 4.5", onCall: async (plugin, request) =>
+            {
+                _ = Task.Run(plugin.StopAsync);
+                await Task.Delay(Timeout.Infinite, plugin.Disposed);
+                return FakePlugin.Success(request, "never");
+            });
+            await editor.StartAsync();
+
+            var (status, body) = await server.RestCallAsync("echo", "{}").WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.Equal(502, status);
+            Assert.StartsWith("[plugin_disconnected]", body!["error"]!.GetValue<string>());
         }
     }
 }

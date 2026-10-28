@@ -37,11 +37,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
         readonly string _environment;
         readonly string? _declaredRole;
         readonly Func<FakePlugin, RequestCallTool, Task<ResponseData<ResponseCallTool>>>? _onCall;
+        readonly string _apiVersion;
+        readonly CancellationTokenSource _disposed = new CancellationTokenSource();
         HubConnection? _connection;
 
         public FakePlugin(int port, string name, string environment, string? declaredRole,
-            Func<FakePlugin, RequestCallTool, Task<ResponseData<ResponseCallTool>>>? onCall)
+            Func<FakePlugin, RequestCallTool, Task<ResponseData<ResponseCallTool>>>? onCall, string? apiVersion = null)
         {
+            _apiVersion = apiVersion ?? Consts.ApiVersion;
             _port = port;
             Name = name;
             _environment = environment;
@@ -50,6 +53,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
         }
 
         public string Name { get; }
+
+        /// <summary>Cancelled when the plugin is disposed: a handler that "hangs" waits on it, so it never outlives the test.</summary>
+        public CancellationToken Disposed => _disposed.Token;
         public ConcurrentQueue<RequestCallTool> Calls { get; } = new ConcurrentQueue<RequestCallTool>();
         public TaskCompletionSource<string?> ForceDisconnected { get; } = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         public string? ConnectionId => _connection?.ConnectionId;
@@ -88,7 +94,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
             var handshake = await _connection.InvokeAsync<VersionHandshakeResponse>("PerformVersionHandshake", new RequestVersionHandshake
             {
                 RequestID = Guid.NewGuid().ToString(),
-                ApiVersion = Consts.ApiVersion,
+                ApiVersion = _apiVersion,
                 PluginVersion = "0.0.0-test",
                 Environment = _environment,
             });
@@ -107,8 +113,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
 
         public async ValueTask DisposeAsync()
         {
+            _disposed.Cancel();
             if (_connection != null)
                 await _connection.DisposeAsync();
+            _disposed.Dispose();
         }
     }
 
