@@ -50,7 +50,7 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
   (dependency guard first; real run on `main` only; fails if tag `v<version>` exists) -> full tests (`test_pull_request.yml`
   via `workflow_call`) -> executables + NuGet + Docker Hub -> tag `v<version>` + GitHub Release
   (7 zips + `SHA256SUMS`) -> post-publish verification (NuGet index, Docker Hub tag, release assets).
-  `dry_run=true` runs every test and build and publishes nothing.
+  `dry_run=true` runs every test and build and publishes nothing (once the dependency guard passes).
 - `workflow_call` children of `release.yml`:
   - `deploy_server_executables.yml` builds, code-signs (Azure Trusted Signing on Windows,
     codesign+notarytool on macOS — degrading gracefully without secrets) and zips the 7 RIDs as 1-day

@@ -16,9 +16,11 @@ Docker image all come from `com.IvanMurzak.GameDev.MCP.Server.csproj`):
     `.props` / `.targets` / `.nuspec` files that feed it, MSBuild `$(Property)` versions resolved:
     a pre-release version (any `-` suffix) or a version not listed on nuget.org fails;
   * a local (non-URL) NuGet restore source: `RestoreSources` / `RestoreAdditionalProjectSources` /
-    `RestoreFallbackFolders` in those files, or a `nuget.config` package source above the project;
+    `RestoreFallbackFolders` in those files, or a `nuget.config` package source / fallback folder above
+    the project;
   * the `Dockerfile`: a `COPY`/`ADD` of a local feed (a `.nupkg`, a folder holding one, or
-    `prerelease-packages`) and a `dotnet ... --source` / `dotnet nuget add source` with a local path.
+    `prerelease-packages`), and a local path in `dotnet ... --source`, `dotnet nuget add source`,
+    `-p:<restore-source property>=` or `ENV`/`ARG <restore-source property>`.
 nuget.org being unreachable fails the run too (fail closed). The test project ships nothing and is
 not scanned.
 
@@ -29,6 +31,7 @@ Exit 0 = every pin is a published release; exit 1 = problems listed (file:line: 
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 import re
@@ -88,12 +91,16 @@ class NuGetRegistry:
         if key not in self._cache:
             try:
                 body = self._fetch(NUGET_INDEX_URL.format(id=key))
+                listed = None if body is None else {
+                    normalize_nuget_version(v) for v in json.loads(body.decode("utf-8"))["versions"]
+                }
+            except (ValueError, KeyError, TypeError, AttributeError) as error:  # not the flat-container JSON
+                self._outage = RegistryError(f"{NUGET_INDEX_URL.format(id=key)}: unexpected response ({error!r})")
+                raise self._outage from error
             except RegistryError as error:
                 self._outage = error
                 raise
-            self._cache[key] = None if body is None else {
-                normalize_nuget_version(v) for v in json.loads(body.decode("utf-8")).get("versions", [])
-            }
+            self._cache[key] = listed
         return self._cache[key]
 
 
@@ -108,7 +115,7 @@ def _http_get(url: str) -> Optional[bytes]:
             if error.code == 404:
                 return None
             last = error
-        except (urllib.error.URLError, TimeoutError, OSError) as error:
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as error:
             last = error
         if attempt < 2:
             time.sleep(2 ** attempt)
@@ -146,6 +153,8 @@ def nuget_versions_in(spec: str) -> tuple[list[str], Optional[str]]:
         if spec[-1] not in "])":
             return [], f"malformed version range '{spec}'"
         lower, _, upper = (b.strip() for b in spec[1:-1].partition(","))
+        if spec[0] == "(" and lower:
+            return [], f"version range '{spec}' with an exclusive lower bound is not a pin"
         if "," not in spec:  # `[1.2.3]`: exactly that version
             return [lower], None
         # The lower bound is what restore picks; an exclusive upper bound need not exist (yet).
@@ -302,7 +311,8 @@ def scan_msbuild(project: Path, root: Path) -> tuple[list[Pin], list[Problem]]:
                     entry = entry.strip()
                     if not entry or entry == f"$({name})":
                         continue
-                    if not all(is_url(source) for source in resolve(entry, properties, path)):
+                    resolved = [s for value in resolve(entry, properties, path) for s in value.split(";") if s.strip()]
+                    if not all(is_url(source.strip()) for source in resolved):
                         problems.append(Problem(path, line_of(text, f"<{name}"),
                                                 f"{name} adds the local NuGet feed '{entry}' "
                                                 f"(a release must restore from nuget.org only; delete the "
@@ -321,12 +331,13 @@ def scan_nuget_configs(project: Path, root: Path) -> list[Problem]:
                 except ET.ParseError as error:
                     problems.append(Problem(entry, 1, f"cannot parse nuget.config: {error}"))
                     continue
-                for sources in tree.iter("packageSources"):
-                    for add in sources.iter("add"):
-                        value = add.get("value", "")
-                        if value and not is_url(value):
-                            problems.append(Problem(entry, line_of(text, value),
-                                                    f"package source '{add.get('key')}' is the local feed '{value}'"))
+                for section, label in (("packageSources", "package source"), ("fallbackPackageFolders", "fallback folder")):
+                    for sources in tree.iter(section):
+                        for add in sources.iter("add"):
+                            value = add.get("value", "")
+                            if value and not is_url(value):
+                                problems.append(Problem(entry, line_of(text, value),
+                                                        f"{label} '{add.get('key')}' is the local feed '{value}'"))
     return problems
 
 
@@ -358,16 +369,27 @@ def require(path: Path, problems: list[Problem]) -> bool:
 
 # --- Dockerfile -------------------------------------------------------------------------------
 
-_ARG = r"(\"[^\"]*\"|'[^']*'|\S+)"
-DOTNET_SOURCE_RE = re.compile(r"\bdotnet\b.*?\s(?:--source|-s)(?:\s+|=)" + _ARG, re.IGNORECASE)
+_ARG = r"(\"[^\"]*\"|'[^']*'|[^\s;&|]+)"
+_RESTORE_PROPS = "|".join(sorted(RESTORE_SOURCE_PROPERTIES))
+# `dotnet <cmd> ...` whose `-s` / `--source` is a NuGet source (on `dotnet test`, `-s` means --settings).
+DOTNET_RESTORING_RE = re.compile(r"\bdotnet\s+(?:restore|build|publish|pack|run|tool\s+\w+|add\s+\S+\s+package)\b([^;&|]*)",
+                                 re.IGNORECASE)
+SOURCE_FLAG_RE = re.compile(r"(?:^|\s)(?:--source|-s)(?:\s+|=|:)" + _ARG, re.IGNORECASE)
 NUGET_ADD_SOURCE_RE = re.compile(r"\bdotnet\s+nuget\s+add\s+source\s+" + _ARG, re.IGNORECASE)
+# Restore-source properties set on a command line (`-p:X=...`) or as environment (`ENV X=...` / `ARG X=...`),
+# which MSBuild reads as properties too.
+PROPERTY_ARG_RE = re.compile(r"(?:^|\s)[-/]p(?:roperty)?:(" + _RESTORE_PROPS + r")=" + _ARG, re.IGNORECASE)
+ENV_PROPERTY_RE = re.compile(r"^\s*(?:ENV|ARG)\s+.*?\b(" + _RESTORE_PROPS + r")(?:=|\s+)" + _ARG, re.IGNORECASE)
 COPY_RE = re.compile(r"^\s*(COPY|ADD)\s+(.*)$", re.IGNORECASE)
 
 
 def logical_lines(text: str) -> Iterable[tuple[int, str]]:
-    """Dockerfile instructions with backslash continuations joined, each with its first line's number."""
+    """Dockerfile instructions with backslash continuations joined, each with its first line's number.
+    Comment lines are dropped first, as Docker does (they neither continue nor break an instruction)."""
     start, parts = 0, []
     for number, line in enumerate(text.splitlines(), 1):
+        if line.lstrip().startswith("#"):
+            continue
         if not parts:
             start = number
         stripped = line.rstrip()
@@ -394,7 +416,7 @@ def copy_sources(arguments: str) -> list[str]:
         except json.JSONDecodeError:
             return []
     else:
-        paths = rest.split()
+        paths = [p.strip("\"'") for p in rest.split()]
     return paths[:-1]
 
 
@@ -411,8 +433,6 @@ def is_local_feed(source: str, root: Path) -> bool:
 def scan_dockerfile(path: Path, root: Path) -> list[Problem]:
     problems: list[Problem] = []
     for line, instruction in logical_lines(path.read_text(encoding="utf-8-sig")):
-        if instruction.lstrip().startswith("#"):
-            continue
         copy = COPY_RE.match(instruction)
         if copy:
             for source in copy_sources(copy.group(2)):
@@ -420,11 +440,14 @@ def scan_dockerfile(path: Path, root: Path) -> list[Problem]:
                     problems.append(Problem(path, line, f"{copy.group(1).upper()} brings the local NuGet feed "
                                                         f"'{source}' into the image build (a release must restore "
                                                         f"from nuget.org only)"))
-        for pattern in (DOTNET_SOURCE_RE, NUGET_ADD_SOURCE_RE):
-            for match in pattern.finditer(instruction):
-                source = match.group(1).strip("\"'")
-                if not is_url(source):
-                    problems.append(Problem(path, line, f"dotnet restores from the local NuGet source '{source}'"))
+        sources = [m.group(1) for m in NUGET_ADD_SOURCE_RE.finditer(instruction)]
+        for command in DOTNET_RESTORING_RE.finditer(instruction):
+            sources += [m.group(1) for m in SOURCE_FLAG_RE.finditer(command.group(1))]
+        for match in [*PROPERTY_ARG_RE.finditer(instruction), *ENV_PROPERTY_RE.finditer(instruction)]:
+            sources += match.group(2).strip("\"'").split(";")
+        for source in (s.strip().strip("\"'") for s in sources):
+            if source and not is_url(source):
+                problems.append(Problem(path, line, f"dotnet restores from the local NuGet source '{source}'"))
     return problems
 
 

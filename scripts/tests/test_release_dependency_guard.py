@@ -6,6 +6,8 @@ from pathlib import Path
 import tempfile
 import textwrap
 import unittest
+import urllib.error
+from unittest import mock
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "release_dependency_guard.py"
 _spec = importlib.util.spec_from_file_location("release_dependency_guard", _SCRIPT)
@@ -220,6 +222,44 @@ class GuardTests(unittest.TestCase):
         ], problems)
         self.assertEqual([9, 10, 11, 13, 14], [p.line for p in found])
 
+    def test_dockerfile_more_local_source_forms(self):
+        fixture = Fixture(self.root)
+        fixture.write("Dockerfile", CLEAN_DOCKERFILE + textwrap.dedent("""\
+            RUN dotnet restore a.csproj --source https://api.nuget.org/v3/index.json --source /src/feed1
+            RUN dotnet publish a.csproj -p:RestoreAdditionalProjectSources=/src/feed2 -c Release
+            ENV RestoreSources="https://api.nuget.org/v3/index.json;/src/feed3"
+            # a comment ending in a backslash does not swallow the next instruction \\
+            COPY "prerelease-packages/" "prerelease-packages/"
+            RUN dotnet restore a.csproj \\
+                # a comment inside a continuation is dropped, not a break
+                --source /src/feed4
+            RUN dotnet test t.csproj -s ci.runsettings
+            """))
+        problems = self.problems()
+        self.assertEqual([
+            ("Dockerfile", "dotnet restores from the local NuGet source '/src/feed1'"),
+            ("Dockerfile", "dotnet restores from the local NuGet source '/src/feed2'"),
+            ("Dockerfile", "dotnet restores from the local NuGet source '/src/feed3'"),
+            ("Dockerfile", "COPY brings the local NuGet feed 'prerelease-packages/' into the image build "
+                           "(a release must restore from nuget.org only)"),
+            ("Dockerfile", "dotnet restores from the local NuGet source '/src/feed4'"),
+        ], problems)
+
+    def test_restore_source_property_expanding_to_a_list(self):
+        fixture = Fixture(self.root)
+        fixture.write("Directory.Build.props", "<Project><PropertyGroup>"
+                      "<Feeds>https://api.nuget.org/v3/index.json;./feed</Feeds>"
+                      "<RestoreSources>$(Feeds)</RestoreSources></PropertyGroup></Project>")
+        problems = self.problems()
+        self.assertEqual(1, len(problems))
+        self.assertIn("RestoreSources adds the local NuGet feed '$(Feeds)'", problems[0][1])
+
+    def test_nuget_config_fallback_folder(self):
+        fixture = Fixture(self.root)
+        fixture.write("nuget.config", '<configuration><fallbackPackageFolders>'
+                      '<add key="f" value="./feed" /></fallbackPackageFolders></configuration>')
+        self.assertEqual([("nuget.config", "fallback folder 'f' is the local feed './feed'")], self.problems())
+
     def test_missing_shipped_files_fail(self):
         Fixture(self.root)
         self.root.joinpath("Dockerfile").unlink()
@@ -245,6 +285,33 @@ class DockerfileParsingTests(unittest.TestCase):
         self.assertEqual([(1, "RUN a    b"), (3, "COPY c d")], list(guard.logical_lines("RUN a \\\n  b\nCOPY c d\n")))
 
 
+class RegistryTests(unittest.TestCase):
+    """The real HTTP layer with urlopen patched: 404 = unknown package, anything else unreadable fails closed."""
+
+    def fetch_with(self, *effects):
+        with mock.patch.object(guard.urllib.request, "urlopen", side_effect=list(effects)) as urlopen,                 mock.patch.object(guard.time, "sleep"):
+            try:
+                return guard._http_get("https://example.invalid/x/index.json"), urlopen.call_count
+            except guard.RegistryError as error:
+                return error, urlopen.call_count
+
+    def test_404_is_unknown_package(self):
+        error = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        self.assertEqual((None, 1), self.fetch_with(error))
+
+    def test_server_errors_retry_then_fail(self):
+        result, calls = self.fetch_with(urllib.error.HTTPError("u", 503, "Unavailable", {}, None),
+                                        urllib.error.URLError("down"), TimeoutError())
+        self.assertIsInstance(result, guard.RegistryError)
+        self.assertEqual(3, calls)
+
+    def test_malformed_body_fails_closed(self):
+        for body in (b"<html>captive portal</html>", b"[]", b"{}"):
+            registry = guard.NuGetRegistry(lambda url, body=body: body)
+            with self.assertRaises(guard.RegistryError):
+                registry.versions("R3")
+
+
 class VersionTests(unittest.TestCase):
     def test_prerelease(self):
         self.assertTrue(guard.is_prerelease("8.14.0-dev.36320da"))
@@ -263,6 +330,8 @@ class VersionTests(unittest.TestCase):
         self.assertEqual((["1.0"], None), guard.nuget_versions_in("[1.0,2.0)"))  # exclusive upper bound need not exist
         self.assertEqual((["1.0", "2.0"], None), guard.nuget_versions_in("[1.0,2.0]"))
         self.assertEqual(([], "floating version '1.*' is not a pin"), guard.nuget_versions_in("1.*"))
+        self.assertEqual(([], "version range '(1.0,2.0)' with an exclusive lower bound is not a pin"),
+                         guard.nuget_versions_in("(1.0,2.0)"))
 
 
 if __name__ == "__main__":
