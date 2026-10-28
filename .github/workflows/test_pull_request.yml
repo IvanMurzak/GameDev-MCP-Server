@@ -158,6 +158,11 @@ jobs:
       - name: Test
         run: dotnet test tests/GameDev.MCP.Server.Tests/GameDev.MCP.Server.Tests.csproj -c Release
 
+      # Offline unit tests of the release dependency guard (a fake nuget.org; the guard itself runs
+      # only in release.yml, where it refuses pre-release pins and local feeds).
+      - name: Release dependency guard unit tests
+        run: python3 -m unittest discover -s scripts/tests -v
+
       # The leg record (below) proves only the HOST csproj's obj/project.assets.json, and
       # not McpPlugin.Common. The test project restores separately during `dotnet test`:
       # assert that BOTH assets files resolve every package the override forced (the

@@ -27,6 +27,7 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
   (`Configure/`), logging adapters (`Utils/`). New host code goes here, not engine or server logic.
 - `tests/GameDev.MCP.Server.Tests/` — xUnit tests (excluded from the main csproj build and pack).
 - `build/` — cross-platform publish scripts and the macOS entitlements.
+- `scripts/` — the release dependency guard + its offline unit tests (`scripts/tests/`, run by PR CI).
 - `docs/NUGET.md` — the NuGet readme; `docs/img/` — README images.
 - `.github/workflows/` — PR tests and the dispatch-only release with its `deploy_*` children.
 - Root: the csproj, `server.json` (MCP registry manifest), `Dockerfile`, `appsettings.json`, `NLog.config`.
@@ -38,14 +39,15 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 - Between test waves McpPlugin is integrated unreleased: `<version>-dev.<sha>` packages committed under
   `prerelease-packages/`, fed to every restore by `Directory.Build.props` (and copied by the Dockerfile).
   Before a release, pin published versions, delete both, and drop their Dockerfile COPY lines and the
-  `.gitignore` exception (nothing in `release.yml` refuses a `-dev` pin).
+  `.gitignore` exception: `release.yml` FAILS first (dry runs too) while any pin is a pre-release or
+  not on nuget.org, or a local feed is wired in (`scripts/release_dependency_guard.py`).
 - **NuGet readme is `docs/NUGET.md`, NOT the root README** (whose GitHub HTML NuGet's sanitizer
   mangles); the csproj packs it as `README.md`. Keep its versions/compatibility table in sync with the
   root README on each release. A readme fix shows on nuget.org only after a **new version** is published.
 - **Release = manual dispatch of `.github/workflows/release.yml` ONLY**
   (`gh workflow run release.yml -R IvanMurzak/GameDev-MCP-Server --ref main -f dry_run=false`).
   Merging a version bump publishes nothing; nothing listens for GitHub `release` events. Order: guard
-  (real run on `main` only; fails if tag `v<version>` exists) -> full tests (`test_pull_request.yml`
+  (dependency guard first; real run on `main` only; fails if tag `v<version>` exists) -> full tests (`test_pull_request.yml`
   via `workflow_call`) -> executables + NuGet + Docker Hub -> tag `v<version>` + GitHub Release
   (7 zips + `SHA256SUMS`) -> post-publish verification (NuGet index, Docker Hub tag, release assets).
   `dry_run=true` runs every test and build and publishes nothing.
