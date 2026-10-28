@@ -124,10 +124,10 @@ class GuardTests(unittest.TestCase):
                          {(p.package, p.version) for p in pins})
 
     def test_prerelease_pins_feed_and_docker_copy_fail(self):
-        Fixture(self.root, mcp_plugin="8.14.0-dev.36320da", feed=True)
+        Fixture(self.root, mcp_plugin="8.14.0-dev.e8985d5", feed=True)
         problems = self.problems()
-        self.assertIn((HOST, "com.IvanMurzak.McpPlugin.Server 8.14.0-dev.36320da is a pre-release version"), problems)
-        self.assertIn((HOST, "com.IvanMurzak.McpPlugin 8.14.0-dev.36320da is a pre-release version"), problems)
+        self.assertIn((HOST, "com.IvanMurzak.McpPlugin.Server 8.14.0-dev.e8985d5 is a pre-release version"), problems)
+        self.assertIn((HOST, "com.IvanMurzak.McpPlugin 8.14.0-dev.e8985d5 is a pre-release version"), problems)
         self.assertTrue(any(f == "Directory.Build.props" and "local NuGet feed" in m and "prerelease-packages" in m
                             for f, m in problems))
         self.assertTrue(any(f == "Dockerfile" and "COPY brings the local NuGet feed 'prerelease-packages/'" in m
@@ -314,7 +314,7 @@ class RegistryTests(unittest.TestCase):
 
 class VersionTests(unittest.TestCase):
     def test_prerelease(self):
-        self.assertTrue(guard.is_prerelease("8.14.0-dev.36320da"))
+        self.assertTrue(guard.is_prerelease("8.14.0-dev.e8985d5"))
         self.assertTrue(guard.is_prerelease("1.0.0-rc.1+build"))
         self.assertFalse(guard.is_prerelease("1.0.0+build-7"))
         self.assertFalse(guard.is_prerelease("8.13.1"))
