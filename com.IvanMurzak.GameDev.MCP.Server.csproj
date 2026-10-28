@@ -60,7 +60,8 @@
     dependency) 8.14.0-dev.36320da are packed from MCP-Plugin-dotnet main 36320da and committed under
     prerelease-packages/; the repo-root Directory.Build.props adds that folder as a restore source for every
     project here (host, tests, Docker build). Both pins move together. At the cascade release: set the
-    published version, delete prerelease-packages/ and Directory.Build.props.
+    published version, delete prerelease-packages/ and Directory.Build.props, drop their two COPY lines from
+    the Dockerfile and the !prerelease-packages exception from .gitignore.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.0" />
