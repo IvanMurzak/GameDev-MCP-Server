@@ -1,0 +1,25 @@
+README.md
+  s_8b677f7e5eeedc::t_5802f682de6bea 170
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_8b677f7e5eeedc::t_1964bf3bc56fd2 16,60,67
+docs/NUGET.md
+  s_8b677f7e5eeedc::t_38bd24ee027e74 87
+server.json
+  s_8b677f7e5eeedc::t_3f98b3c1fc6082 10,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "77adfc88250e6ed5a8572c80d6a5ca47456e9dba",
+  "prompts": {},
+  "sessions": {
+    "s_8b677f7e5eeedc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1413c-d77b-7de0-8dd6-eb573f517fb8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

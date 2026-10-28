@@ -1,0 +1,19 @@
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_ed1b4ae4e5d986::t_c6eda7189facbe 60,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "08c89fccbd53ad15f9a58be56723aa380bf05ffc",
+  "prompts": {},
+  "sessions": {
+    "s_ed1b4ae4e5d986": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d065bda2-94f7-45db-b8f4-2da50c81020b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
