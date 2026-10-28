@@ -11,7 +11,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using com.IvanMurzak.GameDev.MCP.Server.Tools;
+using com.IvanMurzak.McpPlugin.Server.Tools;
 using Xunit;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Tests

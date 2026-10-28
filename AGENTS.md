@@ -35,6 +35,10 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 
 - `<Version>` in the csproj + `server.json` move together. Keep the McpPlugin.Server / ReflectorNet
   pins in lockstep with the engine plugins (Compatibility table in README.md).
+- Between test waves McpPlugin is integrated unreleased: `<version>-dev.<sha>` packages committed under
+  `prerelease-packages/`, fed to every restore by `Directory.Build.props` (and copied by the Dockerfile).
+  Before a release, pin published versions, delete both, and drop their Dockerfile COPY lines and the
+  `.gitignore` exception (nothing in `release.yml` refuses a `-dev` pin).
 - **NuGet readme is `docs/NUGET.md`, NOT the root README** (whose GitHub HTML NuGet's sanitizer
   mangles); the csproj packs it as `README.md`. Keep its versions/compatibility table in sync with the
   root README on each release. A readme fix shows on nuget.org only after a **new version** is published.

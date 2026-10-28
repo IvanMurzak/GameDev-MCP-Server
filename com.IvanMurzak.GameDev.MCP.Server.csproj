@@ -54,17 +54,25 @@
     The server core lives entirely in the McpPlugin.Server package; there is no
     engine-specific server code in this repository. Keep these pins in lockstep
     with the engine plugins (Unity-MCP / Godot-MCP / Unreal-MCP).
+
+    TEMPORARY PRE-RELEASE PINS (owner rule: between test waves the libraries are integrated without a
+    release): com.IvanMurzak.McpPlugin.Server + com.IvanMurzak.McpPlugin (+ their McpPlugin.Common
+    dependency) 8.14.0-dev.36320da are packed from MCP-Plugin-dotnet main 36320da and committed under
+    prerelease-packages/; the repo-root Directory.Build.props adds that folder as a restore source for every
+    project here (host, tests, Docker build). Both pins move together. At the cascade release: set the
+    published version, delete prerelease-packages/ and Directory.Build.props, drop their two COPY lines from
+    the Dockerfile and the !prerelease-packages exception from .gitignore.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.0" />
-    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.13.1" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.14.0-dev.36320da" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
       shared AI-agent configurator registry (AiAgentConfiguratorRegistry) + ProjectIdentity /
       ProjectMarker primitives the `configure` subcommand consumes from the terminal. Pinned in
       lockstep with McpPlugin.Server.
     -->
-    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.13.1" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.14.0-dev.36320da" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' == 'true'">

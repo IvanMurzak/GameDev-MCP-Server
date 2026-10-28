@@ -142,12 +142,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
             var mcpServerBuilder = builder.Services
                 .WithMcpServer(dataArguments, logger)
-                .WithMcpPluginServer(dataArguments)
-                .AddToolCallGuard(dataArguments);
-
-            // auth=none: keep the editor connected when a game (runtime) plugin connects, and route tool
-            // calls to the editor (wave-4/5 finding: the game used to evict the editor).
-            builder.Services.AddPluginRoles(dataArguments);
+                .WithMcpPluginServer(dataArguments);
 
             // Additional configurable Origin allow-list (b2 carry-forward / design 02 §Origin
             // validation). The library default admits loopback + the --public-url origin only. When
@@ -255,7 +250,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             // ---------------------------------------------------------------------------
 
             // Setup SignalR ----------------------------------------------------
-            app.UseToolCallCancellation();
             app.UseMcpPluginServer(dataArguments);
 
             // Setup MCP client -------------------------------------------------

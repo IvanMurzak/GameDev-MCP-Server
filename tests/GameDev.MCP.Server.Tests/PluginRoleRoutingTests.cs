@@ -10,15 +10,17 @@
 
 using System;
 using System.Threading.Tasks;
-using com.IvanMurzak.GameDev.MCP.Server.Plugins;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
+using com.IvanMurzak.McpPlugin.Common;
+using com.IvanMurzak.McpPlugin.Server.Strategy;
 using Xunit;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 {
     /// <summary>
     /// auth=none with an editor and a game (runtime) plugin connected at once (wave-4/5 finding: the game
-    /// evicted the editor, and every editor tool call then reached the game).
+    /// evicted the editor, and every editor tool call then reached the game). The behaviour comes from
+    /// McpPlugin.Server; these tests pin it for this host.
     /// </summary>
     [Collection(LiveServerCollection.Name)]
     public class PluginRoleRoutingTests
@@ -142,8 +144,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal("editor:echo", ServerHarness.ToolResult(await server.CallToolAsync("echo", new { })).Text);
 
             await editor.StopAsync(); // an editor assembly reload
-            var registry = (PluginConnectionRegistry)server.Services.GetService(typeof(PluginConnectionRegistry))!;
-            Assert.True(await PollUntil.TrueAsync(() => registry.WithRole(PluginRole.Editor).Count == 0, TimeSpan.FromSeconds(5)));
+            var registry = Registry(server);
+            Assert.True(await PollUntil.TrueAsync(() => registry.WithRole(ClientRole.Editor).Count == 0, TimeSpan.FromSeconds(5)));
 
             var call = server.CallToolAsync("echo", new { });
             await Task.Delay(500);
@@ -165,8 +167,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal("editor:echo", ServerHarness.ToolResult(await server.CallToolAsync("echo", new { })).Text);
 
             await editor.StopAsync();
-            var registry = (PluginConnectionRegistry)server.Services.GetService(typeof(PluginConnectionRegistry))!;
-            Assert.True(await PollUntil.TrueAsync(() => registry.WithRole(PluginRole.Editor).Count == 0, TimeSpan.FromSeconds(5)));
+            var registry = Registry(server);
+            Assert.True(await PollUntil.TrueAsync(() => registry.WithRole(ClientRole.Editor).Count == 0, TimeSpan.FromSeconds(5)));
 
             var call = server.CallToolAsync("echo", new { });
             await using var game = server.NewPlugin("game", "Godot 4.5 (runtime)"); // its role is unknown until its handshake
@@ -179,17 +181,20 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Empty(game.Calls);
         }
 
+        static PluginConnectionRegistry Registry(ServerHarness server)
+            => ((IPluginRoleStrategy)server.Services.GetService(typeof(IMcpConnectionStrategy))!).Registry;
+
         [Fact]
         public void EditorLeftWithin_UsesTheRegistryClock()
         {
             var now = DateTimeOffset.UtcNow;
             var registry = new PluginConnectionRegistry(() => now);
-            registry.Add("game", PluginRole.Runtime, null);
-            registry.Remove("game");
+            registry.Add("game", ClientRole.Runtime, null);
+            registry.Remove("game", out _);
             Assert.False(registry.EditorLeftWithin(TimeSpan.FromSeconds(60))); // a game leaving is not an editor leaving
 
-            registry.Add("editor", PluginRole.Editor, null);
-            registry.Remove("editor");
+            registry.Add("editor", ClientRole.Editor, null);
+            registry.Remove("editor", out _);
             now += TimeSpan.FromSeconds(59);
             Assert.True(registry.EditorLeftWithin(TimeSpan.FromSeconds(60)));
             now += TimeSpan.FromSeconds(2);
@@ -200,29 +205,29 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         public void OlderConnectionClassifiedLate_ReplacesItself_NotTheNewerOne()
         {
             var registry = new PluginConnectionRegistry();
-            registry.Add("old", PluginRole.Unknown, null);
-            Assert.Empty(registry.Add("new", PluginRole.Editor, null));
-            Assert.True(registry.TryClassify("old", PluginRole.Editor, out _, out var replaced));
+            registry.Add("old", null, null);
+            Assert.Empty(registry.Add("new", ClientRole.Editor, null));
+            Assert.True(registry.TryClassify("old", ClientRole.Editor, out _, out var replaced));
             Assert.Equal(new[] { "old" }, replaced);
-            Assert.Equal(new[] { "new" }, registry.WithRole(PluginRole.Editor));
+            Assert.Equal(new[] { "new" }, registry.WithRole(ClientRole.Editor));
         }
 
         [Theory]
-        [InlineData("Godot 4.5.1.stable (runtime)", PluginRole.Runtime)]
-        [InlineData("Godot 4.5.1.stable", PluginRole.Editor)]
-        [InlineData("6000.0.40f1", PluginRole.Editor)]
-        [InlineData("", PluginRole.Editor)]
-        [InlineData(null, PluginRole.Editor)]
-        public void RoleFromEnvironment(string? environment, PluginRole expected)
-            => Assert.Equal(expected, PluginConnectionRegistry.RoleFromEnvironment(environment));
+        [InlineData("Godot 4.5.1.stable (runtime)", ClientRole.Runtime)]
+        [InlineData("Godot 4.5.1.stable", ClientRole.Editor)]
+        [InlineData("6000.0.40f1", ClientRole.Editor)]
+        [InlineData("", ClientRole.Editor)]
+        [InlineData(null, ClientRole.Editor)]
+        public void RoleFromEnvironment(string? environment, ClientRole expected)
+            => Assert.Equal(expected, ClientRoles.FromEnvironment(environment));
 
         [Theory]
-        [InlineData("editor", PluginRole.Editor)]
-        [InlineData("Runtime", PluginRole.Runtime)]
-        [InlineData("game", PluginRole.Runtime)]
+        [InlineData("editor", ClientRole.Editor)]
+        [InlineData("Runtime", ClientRole.Runtime)]
+        [InlineData("game", ClientRole.Runtime)]
         [InlineData("server", null)]
         [InlineData(null, null)]
-        public void ParseRole(string? value, PluginRole? expected)
-            => Assert.Equal(expected, PluginConnectionRegistry.ParseRole(value));
+        public void ParseRole(string? value, ClientRole? expected)
+            => Assert.Equal(expected, ClientRoles.Parse(value));
     }
 }
