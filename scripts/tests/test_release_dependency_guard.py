@@ -141,7 +141,12 @@ class GuardTests(unittest.TestCase):
 
     def test_registry_outage_fails_closed(self):
         Fixture(self.root)
-        problems = self.problems(fake_registry(fail=True))
+        calls = []
+        registry = fake_registry(fail=True)
+        fetch = registry._fetch
+        registry._fetch = lambda url: calls.append(url) or fetch(url)
+        problems = self.problems(registry)
+        self.assertEqual(1, len(calls))  # one retry cycle in total, not one per package
         self.assertEqual(4, len(problems))
         self.assertTrue(all("cannot verify on nuget.org" in m for _, m in problems))
 
@@ -202,7 +207,8 @@ class GuardTests(unittest.TestCase):
             RUN dotnet restore app.csproj --source https://api.nuget.org/v3/index.json
             # COPY prerelease-packages/ prerelease-packages/
             """))
-        problems = self.problems()
+        _, found = guard.run(self.root, fake_registry())
+        problems = [(guard.rel(p.file, self.root), p.message) for p in found]
         self.assertEqual([
             ("Dockerfile", "COPY brings the local NuGet feed 'feed' into the image build "
                            "(a release must restore from nuget.org only)"),
@@ -212,8 +218,7 @@ class GuardTests(unittest.TestCase):
             ("Dockerfile", "dotnet restores from the local NuGet source './pkgs'"),
             ("Dockerfile", "dotnet restores from the local NuGet source '/pkgs'"),
         ], problems)
-        lines = [p.line for p in guard.run(self.root, fake_registry())[1]]
-        self.assertEqual([9, 10, 11, 13, 14], lines)
+        self.assertEqual([9, 10, 11, 13, 14], [p.line for p in found])
 
     def test_missing_shipped_files_fail(self):
         Fixture(self.root)

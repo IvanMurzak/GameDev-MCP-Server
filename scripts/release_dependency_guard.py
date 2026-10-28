@@ -78,22 +78,23 @@ class NuGetRegistry:
 
     def __init__(self, fetch: Optional[Callable[[str], Optional[bytes]]] = None) -> None:
         self._fetch = fetch or _http_get
-        self._cache: dict[str, Optional[set[str]] | RegistryError] = {}
+        self._cache: dict[str, Optional[set[str]]] = {}
+        self._outage: Optional[RegistryError] = None
 
     def versions(self, package: str) -> Optional[set[str]]:
+        if self._outage:  # one retry cycle in total: nuget.org down fails the rest at once
+            raise self._outage
         key = package.lower()
         if key not in self._cache:
             try:
                 body = self._fetch(NUGET_INDEX_URL.format(id=key))
-                self._cache[key] = None if body is None else {
-                    normalize_nuget_version(v) for v in json.loads(body.decode("utf-8")).get("versions", [])
-                }
-            except RegistryError as error:  # remembered: one retry cycle per package, not per pin
-                self._cache[key] = error
-        cached = self._cache[key]
-        if isinstance(cached, RegistryError):
-            raise cached
-        return cached
+            except RegistryError as error:
+                self._outage = error
+                raise
+            self._cache[key] = None if body is None else {
+                normalize_nuget_version(v) for v in json.loads(body.decode("utf-8")).get("versions", [])
+            }
+        return self._cache[key]
 
 
 def _http_get(url: str) -> Optional[bytes]:
@@ -266,54 +267,52 @@ def item_version(element: ET.Element) -> Optional[str]:
     return None
 
 
-def scan_msbuild(projects: list[Path], root: Path) -> tuple[list[Pin], list[Problem]]:
+def scan_msbuild(project: Path, root: Path) -> tuple[list[Pin], list[Problem]]:
     pins: list[Pin] = []
     problems: list[Problem] = []
-    for project in (p.resolve() for p in projects):
-        chain = msbuild_chain(project, root)
-        properties = read_properties(chain)
-        for path in chain:  # a shared props file is read per project: its `$(X)` may differ per project
-            text = path.read_text(encoding="utf-8-sig")
-            try:
-                document = ET.fromstring(text)
-            except ET.ParseError as error:
-                problems.append(Problem(path, 1, f"cannot parse MSBuild/nuspec XML: {error}"))
+    chain = msbuild_chain(project.resolve(), root)
+    properties = read_properties(chain)
+    for path in chain:
+        text = path.read_text(encoding="utf-8-sig")
+        try:
+            document = ET.fromstring(text)
+        except ET.ParseError as error:
+            problems.append(Problem(path, 1, f"cannot parse MSBuild/nuspec XML: {error}"))
+            continue
+        for element in document.iter():
+            if not isinstance(element.tag, str):
                 continue
-            for element in document.iter():
-                if not isinstance(element.tag, str):
-                    continue
-                name = _local(element.tag)
-                if name in PACKAGE_ITEMS or (name == "dependency" and path.suffix == ".nuspec"):
-                    package = element.get("Include") or element.get("Update") or element.get("id")
-                    raw = item_version(element)
-                    if not package or raw is None:
-                        continue  # a version-less reference takes its pin from a PackageVersion scanned here too
-                    line = line_of(text, f'"{package}"', raw) or line_of(text, package, raw)
-                    for version in resolve(raw, properties, path):
-                        if PROPERTY_RE.search(version):
-                            problems.append(Problem(path, line, f"{package}: cannot resolve version '{raw}'"))
-                            continue
-                        versions, error = nuget_versions_in(version)
-                        if error:
-                            problems.append(Problem(path, line, f"{package}: {error}"))
-                        pins.extend(Pin(package, v, path, line) for v in versions)
-                elif name in RESTORE_SOURCE_PROPERTIES and element.text:
-                    for entry in element.text.split(";"):
-                        entry = entry.strip()
-                        if not entry or entry == f"$({name})":
-                            continue
-                        if not all(is_url(source) for source in resolve(entry, properties, path)):
-                            problems.append(Problem(path, line_of(text, f"<{name}"),
-                                                    f"{name} adds the local NuGet feed '{entry}' "
-                                                    f"(a release must restore from nuget.org only; delete the "
-                                                    f"pre-release feed when the pins return to published versions)"))
+            name = _local(element.tag)
+            if name in PACKAGE_ITEMS or (name == "dependency" and path.suffix == ".nuspec"):
+                package = element.get("Include") or element.get("Update") or element.get("id")
+                raw = item_version(element)
+                if not package or raw is None:
+                    continue  # a version-less reference takes its pin from a PackageVersion scanned here too
+                line = line_of(text, f'"{package}"', raw) or line_of(text, package, raw)
+                for version in resolve(raw, properties, path):
+                    if PROPERTY_RE.search(version):
+                        problems.append(Problem(path, line, f"{package}: cannot resolve version '{raw}'"))
+                        continue
+                    versions, error = nuget_versions_in(version)
+                    if error:
+                        problems.append(Problem(path, line, f"{package}: {error}"))
+                    pins.extend(Pin(package, v, path, line) for v in versions)
+            elif name in RESTORE_SOURCE_PROPERTIES and element.text:
+                for entry in element.text.split(";"):
+                    entry = entry.strip()
+                    if not entry or entry == f"$({name})":
+                        continue
+                    if not all(is_url(source) for source in resolve(entry, properties, path)):
+                        problems.append(Problem(path, line_of(text, f"<{name}"),
+                                                f"{name} adds the local NuGet feed '{entry}' "
+                                                f"(a release must restore from nuget.org only; delete the "
+                                                f"pre-release feed when the pins return to published versions)"))
     return pins, problems
 
 
-def scan_nuget_configs(projects: list[Path], root: Path) -> list[Problem]:
+def scan_nuget_configs(project: Path, root: Path) -> list[Problem]:
     problems: list[Problem] = []
-    directories = {d for project in projects for d in ancestors(project.parent, root)}
-    for directory in sorted(directories):
+    for directory in ancestors(project.parent, root):
         for entry in directory.iterdir():
             if entry.is_file() and entry.name.lower() == "nuget.config":
                 text = entry.read_text(encoding="utf-8-sig")
@@ -329,8 +328,6 @@ def scan_nuget_configs(projects: list[Path], root: Path) -> list[Problem]:
                             problems.append(Problem(entry, line_of(text, value),
                                                     f"package source '{add.get('key')}' is the local feed '{value}'"))
     return problems
-
-
 
 
 def check_pins(pins: list[Pin], registry: NuGetRegistry) -> list[Problem]:
@@ -439,21 +436,21 @@ HOST_PROJECT = "com.IvanMurzak.GameDev.MCP.Server.csproj"
 def collect(root: Path) -> tuple[list[Pin], list[Problem]]:
     """Every dependency pin and restore source the server release (executables, NuGet tool, Docker image) uses."""
     problems: list[Problem] = []
+    pins: list[Pin] = []
     host = root / HOST_PROJECT
-    projects = [host] if require(host, problems) else []
-    pins, msbuild_problems = scan_msbuild(projects, root)
-    problems += msbuild_problems + scan_nuget_configs(projects, root)
+    if require(host, problems):
+        pins, msbuild_problems = scan_msbuild(host, root)
+        problems += msbuild_problems + scan_nuget_configs(host, root)
+        if not pins:
+            problems.append(Problem(host, 1, "no NuGet pins found (update scripts/release_dependency_guard.py)"))
     dockerfile = root / "Dockerfile"
     if require(dockerfile, problems):
         problems += scan_dockerfile(dockerfile, root)
-    if projects and not pins:
-        problems.append(Problem(host, 1, "no NuGet pins found (update scripts/release_dependency_guard.py)"))
     return pins, problems
 
 
 def run(root: Path, registry: NuGetRegistry) -> tuple[list[Pin], list[Problem]]:
     pins, problems = collect(root)
-    pins = list(dict.fromkeys(pins))
     problems += check_pins(pins, registry)
     unique = sorted(set(problems), key=lambda p: (rel(p.file, root), p.line, p.message))
     return pins, unique
