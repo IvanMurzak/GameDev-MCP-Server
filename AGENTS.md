@@ -17,8 +17,9 @@ dotnet build com.IvanMurzak.GameDev.MCP.Server.csproj
 dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transport stdio --port 8080
 ```
 
-- All-platform self-contained publish: `./build/build-all.sh` / `./build/build-all.ps1`
-  (`--no-zip` / `-NoZip` for CI signing flows); they anchor `publish/` to the repo root, so any cwd works.
+- All-platform self-contained publish: `python build/build_all.py [Debug|Release] [rid ...]` (stdlib
+  Python 3.9+, any OS; `--no-zip`, then `--zip-only` after code-signing). It anchors `publish/` to the
+  repo root, so any cwd works. No PowerShell in this repo: workflow steps call Python.
 - Local dev against sibling MCP-Plugin-dotnet/ReflectorNet checkouts: `dotnet build -p:UseLocalMcpPlugin=true`.
 
 ## Layout
@@ -26,7 +27,7 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 - `src/` — the host: `Program.cs`, startup/auth defaults (`Startup/`), the `configure` command
   (`Configure/`), logging adapters (`Utils/`). New host code goes here, not engine or server logic.
 - `tests/GameDev.MCP.Server.Tests/` — xUnit tests (excluded from the main csproj build and pack).
-- `build/` — cross-platform publish scripts and the macOS entitlements.
+- `build/` — the cross-platform publish script (`build_all.py`) and the macOS entitlements.
 - `scripts/` — the release dependency guard + its offline unit tests (`scripts/tests/`, run by PR CI).
 - `docs/NUGET.md` — the NuGet readme; `docs/img/` — README images.
 - `.github/workflows/` — PR tests and the dispatch-only release with its `deploy_*` children.

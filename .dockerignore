@@ -19,8 +19,6 @@ tests
 *.md
 
 # scripts
-*.ps1
-*.sh
 scripts
 
 # project files

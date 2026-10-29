@@ -81,13 +81,8 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
-      - name: Make build script executable
-        run: chmod +x ./build/build-all.sh
-
       - name: Build executables (osx + linux, no zip yet)
-        shell: bash {0}
-        run: |
-          ./build/build-all.sh Release --no-zip osx-x64 osx-arm64 linux-x64 linux-arm64
+        run: python3 build/build_all.py Release --no-zip osx-x64 osx-arm64 linux-x64 linux-arm64
 
       # Import the Developer ID Application certificate into a temporary
       # keychain. Guarded on ALL THREE mac signing secrets so a partial-secrets
@@ -134,21 +129,9 @@ jobs:
             codesign --verify --strict --verbose=2 "$BIN"
           done
 
+      # Zips under a `<rid>/` folder, keeping the exec bit (build/build_all.py docstring).
       - name: Zip executables
-        shell: bash {0}
-        run: |
-          set -uo pipefail
-          cd publish
-          for rid in osx-x64 osx-arm64 linux-x64 linux-arm64; do
-            if [ -d "$rid" ]; then
-              echo "Zipping ${rid}..."
-              zip -r "gamedev-mcp-server-${rid}.zip" "${rid}/" > /dev/null
-            else
-              echo "::error::Expected publish dir ${rid} not found"
-              exit 1
-            fi
-          done
-          ls -la *.zip
+        run: python3 build/build_all.py --zip-only osx-x64 osx-arm64 linux-x64 linux-arm64
 
       # Notarize the two macOS zips with notarytool (App Store Connect API key).
       # Guarded on the SAME three signing secrets as the codesign step PLUS the
@@ -198,7 +181,7 @@ jobs:
 
   # ────────────────────────────────────────────────────────────────────
   # Windows: win-x64, win-x86, win-arm64. Signed with Azure Trusted Signing
-  # (signtool is Windows-only). Built on windows-latest via build/build-all.ps1.
+  # (signtool is Windows-only). Built on windows-latest via build/build_all.py.
   # ────────────────────────────────────────────────────────────────────
   build-windows:
     runs-on: windows-latest
@@ -219,10 +202,9 @@ jobs:
         with:
           dotnet-version: "9.0.x"
 
+      # `python`, not `python3`: the hosted Windows image ships python.exe only.
       - name: Build executables (win, no zip yet)
-        shell: pwsh
-        run: |
-          ./build/build-all.ps1 -Configuration Release -NoZip -Platforms win-x64,win-x86,win-arm64
+        run: python build/build_all.py Release --no-zip win-x64 win-x86 win-arm64
 
       # Sign every .exe under the publish dir via Azure Trusted Signing.
       # Guarded: the step is skipped when AZURE_CLIENT_ID is empty, leaving the
@@ -241,23 +223,9 @@ jobs:
           files-folder-filter: exe
           files-folder-recurse: true
 
+      # Flat zips: the files at the zip root (build/build_all.py docstring).
       - name: Zip executables
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = "Stop"
-          $publishRoot = Join-Path $PWD "publish"
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          foreach ($rid in @("win-x64", "win-x86", "win-arm64")) {
-              $runtimePath = Join-Path $publishRoot $rid
-              if (-not (Test-Path $runtimePath)) {
-                  Write-Error "Expected publish dir $rid not found"
-              }
-              $zipPath = Join-Path $publishRoot "gamedev-mcp-server-$rid.zip"
-              if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-              Write-Host "Zipping $rid..."
-              [System.IO.Compression.ZipFile]::CreateFromDirectory($runtimePath, $zipPath)
-          }
-          Get-ChildItem -Path $publishRoot -Filter "*.zip" | Select-Object Name, Length
+        run: python build/build_all.py --zip-only win-x64 win-x86 win-arm64
 
       - name: Upload zips as artifact (win)
         if: ${{ !inputs.dry_run }}
