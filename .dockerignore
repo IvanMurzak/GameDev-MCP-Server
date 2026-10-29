@@ -19,8 +19,7 @@ tests
 *.md
 
 # scripts
-*.ps1
-*.sh
+build
 scripts
 
 # project files

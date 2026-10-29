@@ -152,7 +152,7 @@ jobs:
       # Offline unit tests of the release dependency guard (a fake nuget.org; the guard itself runs
       # only in release.yml, where it refuses pre-release pins and local feeds). After the chain
       # resolver/feed steps, so a failure here still leaves a chain leg record.
-      - name: Release dependency guard unit tests
+      - name: Script unit tests (release dependency guard, build_all.py)
         run: python3 -m unittest discover -s scripts/tests -v
 
       - name: Restore
@@ -203,7 +203,7 @@ jobs:
         run: docker build -t gamedev-mcp-server:ci .
 
       # Chain only: publish the linux-x64 single-file server by chain_feed.py's embedded
-      # RECIPES publish line (the build/build-all.sh flags, unsigned, at -p:Version=<ws>) into
+      # RECIPES publish line (the build/build_all.py flags, unsigned, at -p:Version=<ws>) into
       # .artifacts/server/<ws>/linux-x64, write the chain-identity.json marker with the
       # vendored script's own writer (never by executing the exe — it has no --version), and
       # export CHAIN_SERVER_IDENTITY (ws version, sha, exe sha256, size) for `record --warn`.
