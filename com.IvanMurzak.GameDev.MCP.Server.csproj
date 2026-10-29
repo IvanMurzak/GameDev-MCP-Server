@@ -60,8 +60,8 @@
     dependency) 8.14.0-dev.42786f9 are packed from MCP-Plugin-dotnet main 42786f9 and committed under
     prerelease-packages/, together with com.IvanMurzak.ReflectorNet 5.5.1-dev.ec3702e (ReflectorNet main ec3702e, the
     version McpPlugin depends on); the repo-root Directory.Build.props adds that folder as a restore source for every
-    project here (host, tests, Docker build). Both pins move together. At the cascade release: set the
-    published version, delete prerelease-packages/ and Directory.Build.props, drop their two COPY lines from
+    project here (host, tests, Docker build). The McpPlugin and ReflectorNet pins move together. At the cascade
+    release: set the published McpPlugin and ReflectorNet versions, delete prerelease-packages/ and Directory.Build.props, drop their two COPY lines from
     the Dockerfile and the !prerelease-packages exception from .gitignore.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
