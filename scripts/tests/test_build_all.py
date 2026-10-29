@@ -2,6 +2,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 from pathlib import Path
 import stat
 import tempfile
@@ -71,7 +72,23 @@ class BuildAllTests(unittest.TestCase):
         self.assertEqual(args.project, self.root / "other.csproj")
         self.assertEqual(args.runtimes, ["osx-arm64", "linux-x64", "win-x86"])
         self.assertEqual(build_all.parse_args(["-c", "Debug"]).configuration, "Debug")
-        self.assertEqual(build_all.parse_args(["/abs/x.csproj"]).project, Path("/abs/x.csproj"))
+        absolute = Path(tempfile.gettempdir(), "x.csproj").resolve()
+        self.assertEqual(build_all.parse_args([str(absolute)]).project, absolute)
+
+    def test_options_between_positionals_as_ci_calls_it(self):
+        args = build_all.parse_args(["Debug", "--no-zip", "osx-x64", "linux-x64"])
+        self.assertTrue(args.no_zip)
+        self.assertEqual(args.configuration, "Debug")
+        self.assertEqual(args.runtimes, ["osx-x64", "linux-x64"])
+
+    def test_pre_1980_timestamp_is_zipped(self):
+        rid_dir = self.root / "publish" / "linux-x64"
+        rid_dir.mkdir(parents=True)
+        old = rid_dir / "old.txt"
+        old.write_text("x")
+        os.utime(old, (0, 0))
+        self.assertEqual(self.main("--zip-only", "linux-x64")[0], 0)
+        self.assertIn("linux-x64/old.txt", self.entries("linux-x64"))
 
     def test_bad_arguments_exit_1(self):
         for argv in (["win-x65"], ["--no-zip", "--zip-only"], ["--bogus"]):
@@ -87,7 +104,8 @@ class BuildAllTests(unittest.TestCase):
         linux = self.entries("linux-x64")
         self.assertEqual(set(linux), {"linux-x64/", "linux-x64/gamedev-mcp-server", "linux-x64/appsettings.json"})
         self.assertTrue(stat.S_ISDIR(linux["linux-x64/"]))
-        self.assertTrue(linux["linux-x64/gamedev-mcp-server"] & stat.S_IXUSR)
+        if os.name != "nt":  # Windows has no exec bit to keep
+            self.assertTrue(linux["linux-x64/gamedev-mcp-server"] & stat.S_IXUSR)
 
     def test_build_failure_exits_1_and_skips_zips(self):
         code, calls, out = self.main("linux-x64", "osx-x64", fail_rids=("linux-x64",))

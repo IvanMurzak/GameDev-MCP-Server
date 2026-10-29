@@ -150,7 +150,8 @@ jobs:
           EOF
 
       # Offline unit tests of the release dependency guard (a fake nuget.org; the guard itself runs
-      # only in release.yml, where it refuses pre-release pins and local feeds). After the chain
+      # only in release.yml, where it refuses pre-release pins and local feeds) and of
+      # build/build_all.py (a fake dotnet). After the chain
       # resolver/feed steps, so a failure here still leaves a chain leg record.
       - name: Script unit tests (release dependency guard, build_all.py)
         run: python3 -m unittest discover -s scripts/tests -v

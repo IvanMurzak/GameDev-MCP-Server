@@ -19,7 +19,6 @@ tests
 *.md
 
 # scripts
-build
 scripts
 
 # project files

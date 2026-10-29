@@ -47,7 +47,7 @@ def parse_args(argv):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--no-zip", action="store_true", help="publish only, skip the zip phase")
     mode.add_argument("--zip-only", action="store_true", help="zip existing publish/<rid> folders only")
-    args = parser.parse_args(argv)
+    args = parser.parse_intermixed_args(argv)  # options may sit between the positionals
 
     configuration, project, runtimes = args.configuration, None, []
     for item in args.items:
@@ -83,7 +83,8 @@ def zip_runtime(publish_root, rid):
     src = publish_root / rid
     zip_path = publish_root / ("gamedev-mcp-server-%s.zip" % rid)
     prefix = "" if rid.startswith("win-") else rid + "/"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+    # strict_timestamps=False clamps a pre-1980 mtime as zip -r and CreateFromDirectory did.
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, strict_timestamps=False) as zf:
         if prefix:
             zf.write(src, prefix)
         for path in sorted(src.rglob("*")):
@@ -109,7 +110,7 @@ def run_zips(publish_root, runtimes):
         print("Creating zip for %s..." % rid)
         try:
             zip_path = zip_runtime(publish_root, rid)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             print("Failed to create gamedev-mcp-server-%s.zip: %s" % (rid, exc))
             failed += 1
             continue
