@@ -57,7 +57,7 @@
 
     TEMPORARY PRE-RELEASE PINS (owner rule: between test waves the libraries are integrated without a
     release): com.IvanMurzak.McpPlugin.Server + com.IvanMurzak.McpPlugin (+ their McpPlugin.Common
-    dependency) 8.14.0-dev.42786f9 are packed from MCP-Plugin-dotnet main 42786f9 and committed under
+    dependency) 8.14.0-dev.c0d3157 are packed from MCP-Plugin-dotnet main c0d3157 and committed under
     prerelease-packages/, together with com.IvanMurzak.ReflectorNet 5.5.1-dev.ec3702e (ReflectorNet main ec3702e, the
     version McpPlugin depends on); the repo-root Directory.Build.props adds that folder as a restore source for every
     project here (host, tests, Docker build). The McpPlugin and ReflectorNet pins move together. At the cascade
@@ -66,14 +66,14 @@
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.1-dev.ec3702e" />
-    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.14.0-dev.42786f9" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.14.0-dev.c0d3157" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
       shared AI-agent configurator registry (AiAgentConfiguratorRegistry) + ProjectIdentity /
       ProjectMarker primitives the `configure` subcommand consumes from the terminal. Pinned in
       lockstep with McpPlugin.Server.
     -->
-    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.14.0-dev.42786f9" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.14.0-dev.c0d3157" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' == 'true'">
