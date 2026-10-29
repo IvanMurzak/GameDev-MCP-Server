@@ -19,7 +19,6 @@ Runtimes may be space- or comma-separated; none = all seven.
 Exit 0 = every requested build and zip succeeded; exit 1 = bad argument or any failure.
 """
 import argparse
-import os
 import shutil
 import subprocess
 import sys
@@ -84,20 +83,19 @@ def zip_runtime(publish_root, rid):
     src = publish_root / rid
     zip_path = publish_root / ("gamedev-mcp-server-%s.zip" % rid)
     prefix = "" if rid.startswith("win-") else rid + "/"
-    if zip_path.exists():
-        zip_path.unlink()
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         if prefix:
             zf.write(src, prefix)
-        for root, dirs, files in os.walk(src):
-            dirs.sort()
-            for name in sorted(dirs) + sorted(files):
-                path = Path(root) / name
-                if path.is_dir() and not prefix:
-                    continue  # CreateFromDirectory writes no entry for a non-empty folder
-                # ZipFile.write keeps st_mode in the entry, so the Unix exec bit survives.
+        for path in sorted(src.rglob("*")):
+            # Flat: no folder entries, as CreateFromDirectory wrote none for a non-empty folder.
+            # ZipFile.write keeps st_mode in the entry, so the Unix exec bit survives.
+            if prefix or path.is_file():
                 zf.write(path, prefix + path.relative_to(src).as_posix())
     return zip_path
+
+
+def summary(title, ok, failed):
+    print("%s Summary:\nSuccess: %d\nFailed: %d" % (title, ok, failed))
 
 
 def run_zips(publish_root, runtimes):
@@ -118,7 +116,8 @@ def run_zips(publish_root, runtimes):
         print("Successfully created %s" % zip_path.name)
         ok += 1
 
-    print("\nZip Creation Summary:\nSuccess: %d\nFailed: %d" % (ok, failed))
+    print()
+    summary("Zip Creation", ok, failed)
     if failed:
         print("\n%d zip archive(s) failed to create. See errors above." % failed)
         return 1
@@ -149,8 +148,7 @@ def main(argv=None):
     ok = failed = 0
     for rid in args.runtimes:
         print("Building for %s..." % rid, flush=True)
-        out_dir = publish_root / rid
-        out_dir.mkdir()
+        out_dir = publish_root / rid  # dotnet publish -o creates it
         code = publish(args.project, args.configuration, rid, out_dir)
         if code == 0:
             print("Successfully built %s -> %s\n" % (rid, out_dir))
@@ -159,7 +157,7 @@ def main(argv=None):
             print("Failed to build %s (exit code: %d)\n" % (rid, code))
             failed += 1
 
-    print("Build Summary:\nSuccess: %d\nFailed: %d" % (ok, failed))
+    summary("Build", ok, failed)
     if failed:
         print("\nSome builds failed. Check the output above. Partial outputs: %s" % publish_root)
         return 1

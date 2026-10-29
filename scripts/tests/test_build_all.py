@@ -2,10 +2,8 @@
 import contextlib
 import importlib.util
 import io
-import os
 from pathlib import Path
 import stat
-import sys
 import tempfile
 import unittest
 import zipfile
@@ -24,6 +22,7 @@ def _fake_publish(fail_rids=()):
     def run(cmd):
         calls.append(cmd)
         rid, out = cmd[cmd.index("-r") + 1], Path(cmd[cmd.index("-o") + 1])
+        out.mkdir(parents=True, exist_ok=True)
         exe = out / ("gamedev-mcp-server.exe" if rid.startswith("win-") else "gamedev-mcp-server")
         exe.write_bytes(b"binary")
         exe.chmod(0o755)
