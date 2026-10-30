@@ -24,8 +24,6 @@ artifacts/
 
 ## NuGet
 *.nupkg
-# ...except the temporary pre-release McpPlugin packages (see Directory.Build.props)
-!prerelease-packages/*.nupkg
 *.snupkg
 *.nuspec
 *.psmdcp
