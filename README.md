@@ -174,7 +174,7 @@ Each written config is **URL-only** (credentials are never written into project 
 
 Server releases `9.2.5` and newer build against McpPlugin **8.x**; `9.0.0`–`9.2.4` build against McpPlugin **7.x** (the instance-metadata handshake + `oauth` mode), and McpPlugin 6.x plugins pair with the `8.0.3` line.
 
-Tool-call argument checks (McpPlugin.Server 8.14.0+): a plugin on McpPlugin **8.14.0** or newer (it reports `mcpPluginVersion` in its handshake) gets server-side tool-argument validation (required arguments and types); an older plugin, or one that reports no version, gets no new validation: its calls are forwarded exactly as before.
+Tool-call argument checks (McpPlugin.Server 8.14.0+): a plugin on McpPlugin **8.14.0** or newer (it reports `mcpPluginVersion` in its handshake) gets server-side tool-argument validation (required arguments and types) and the 8.14 call guard (one whole-call deadline, reload/re-send handling); an older plugin, or one that reports no version, has its calls forwarded as server 9.2.x forwarded them: no argument validation, no whole-call deadline, no rewriting of its errors. Only a call carrying a lone UTF-16 surrogate, which cannot be delivered to any plugin, is refused with a clear error. Editor/runtime routing (the editor is kept when a game connects) follows the 8.14 rules for every plugin.
 
 For the exact pins of an intermediate version, see its entry on [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) — this table tracks the current release and the last release on each earlier McpPlugin major rather than every patch, so it does not go stale between them.
 
