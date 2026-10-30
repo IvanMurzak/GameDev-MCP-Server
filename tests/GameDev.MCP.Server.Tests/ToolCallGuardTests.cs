@@ -10,6 +10,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
@@ -60,6 +61,24 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             (isError, text) = ServerHarness.ToolResult(await server.CallToolAsync("rql-query", new { query = "x", max_targets = 3 }));
             Assert.False(isError, text);
             Assert.Single(editor.Calls, c => c.Name == "rql-query");
+        }
+
+        [Fact]
+        public async Task OldPlugin_GetsNoNewArgumentValidation_CallsAreForwardedAsOn9_2()
+        {
+            // A plugin before McpPlugin 8.14.0 reports no mcpPluginVersion: server 9.2.x validated nothing.
+            await using var server = await ServerHarness.StartAsync();
+            await using var editor = server.NewPlugin("editor", "Godot 4.5");
+            editor.McpPluginVersion = null;
+            await editor.StartAsync();
+
+            var (isError, text) = ServerHarness.ToolResult(await server.CallToolAsync("rql-query", new { }));
+            Assert.False(isError, text);
+            (isError, text) = ServerHarness.ToolResult(await server.CallToolAsync("rql-query", new { query = 123 }));
+            Assert.False(isError, text);
+            var (status, _) = await server.RestCallAsync("rql-query", "{}");
+            Assert.Equal(200, status);
+            Assert.Equal(3, editor.Calls.Count(c => c.Name == "rql-query"));
         }
 
         [Fact]
