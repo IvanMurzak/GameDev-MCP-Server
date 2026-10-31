@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>gamedev-mcp-server</ToolCommandName>
     <PackageId>com.IvanMurzak.GameDev.MCP.Server</PackageId>
-    <Version>9.3.0</Version>
+    <Version>9.3.1</Version>
     <Authors>Ivan Murzak</Authors>
     <Company>Ivan Murzak</Company>
     <Copyright>Copyright © 2026 Ivan Murzak</Copyright>
@@ -58,17 +58,18 @@
     The McpPlugin and ReflectorNet pins move together. Cascade release (train t-2026-10-30-03): the
     8.14.0-dev.71fa5c1 / 5.5.1-dev.ec3702e pre-release pins became the published McpPlugin 8.14.0 and
     ReflectorNet 5.5.1; prerelease-packages/, Directory.Build.props and their Dockerfile COPY lines are gone.
+    9.3.1: McpPlugin 8.15.0 (a tool that throws on the request's content is HTTP 422 on the direct endpoint, not 500).
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.1" />
-    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.14.0" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.15.0" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
       shared AI-agent configurator registry (AiAgentConfiguratorRegistry) + ProjectIdentity /
       ProjectMarker primitives the `configure` subcommand consumes from the terminal. Pinned in
       lockstep with McpPlugin.Server.
     -->
-    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.14.0" />
+    <PackageReference Include="com.IvanMurzak.McpPlugin" Version="8.15.0" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' == 'true'">
