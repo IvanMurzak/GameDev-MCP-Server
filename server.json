@@ -36,7 +36,7 @@
           "description": "Client -> Server transport type: stdio or streamableHttp (default: stdio)",
           "format": "string",
           "default": "stdio",
-          "enum": [
+          "choices": [
             "streamableHttp",
             "stdio"
           ]
@@ -46,7 +46,7 @@
           "description": "Authentication mode: none or oauth. Default depends on transport: stdio -> none (offline/local/CI), streamableHttp -> oauth when MCP_AUTH_ISSUER + MCP_PUBLIC_URL are set, otherwise none. oauth validates ES256 JWTs (via cached JWKS) issued by MCP_AUTH_ISSUER, audienced to MCP_PUBLIC_URL.",
           "format": "string",
           "default": "none",
-          "enum": [
+          "choices": [
             "none",
             "oauth"
           ]
