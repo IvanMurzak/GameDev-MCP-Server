@@ -1,0 +1,23 @@
+README.md
+  s_7bc72ecaebd05d::t_fabdf3bcfdfd76 177
+tests/GameDev.MCP.Server.Tests/Harness/FakePlugin.cs
+  s_7bc72ecaebd05d::t_1cc8c38f85f931 57-59,103
+tests/GameDev.MCP.Server.Tests/ToolCallGuardTests.cs
+  s_7bc72ecaebd05d::t_e0aa806cb6e9c6 13,66-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "219132e42815ed3d72c1ea3803ce87053cc04c1d",
+  "prompts": {},
+  "sessions": {
+    "s_7bc72ecaebd05d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "40274cb2-edf8-49ba-9a73-33b83cb5be53",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
