@@ -32,7 +32,7 @@ WORKDIR /app
 COPY --from=build --chown=1654:1654 /app/publish .
 
 # MCP server metadata
-LABEL io.modelcontextprotocol.server.name="io.github.IvanMurzak/GameDev-MCP-Server"
+LABEL io.modelcontextprotocol.server.name="io.github.IvanMurzak/Unity-MCP"
 
 # Expose the default plugin port and the HTTP client port so external scanners
 # (like Smithery) and platform port mappings can reach the server.
