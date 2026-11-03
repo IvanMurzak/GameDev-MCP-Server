@@ -31,7 +31,7 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 - `scripts/` — the release dependency guard + its offline unit tests (`scripts/tests/`, run by PR CI).
 - `docs/NUGET.md` — the NuGet readme; `docs/img/` — README images.
 - `.github/workflows/` — PR tests and the dispatch-only release with its `deploy_*` children.
-- Root: the csproj, `server.json` (MCP registry manifest), `Dockerfile`, `appsettings.json`, `NLog.config`.
+- Root: the csproj, `server.json` (package half of the one registry listing `io.github.IvanMurzak/Unity-MCP`; the listing is published from the Unity-MCP repo, never from here), `Dockerfile`, `appsettings.json`, `NLog.config`.
 
 ## Versioning / releases
 

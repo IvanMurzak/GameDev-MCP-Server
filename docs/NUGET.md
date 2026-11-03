@@ -99,3 +99,5 @@ Server releases `9.2.5` and newer build against McpPlugin 8.x; `9.0.0`–`9.2.4`
 ## License
 
 [Apache-2.0](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE) — Copyright © 2026 Ivan Murzak
+
+<!-- mcp-name: io.github.IvanMurzak/Unity-MCP -->
