@@ -140,6 +140,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             builder.Logging.ClearProviders();
             builder.Logging.AddNLog();
 
+            // Opt-in crash reporting (MCP_SENTRY_DSN); after ClearProviders so its logger survives.
+            if (ErrorReporting.TryEnable(builder))
+                logger.Info($"Error reporting enabled (tag service={ErrorReporting.ServiceTag}).");
+
             // Setup MCP Plugin ---------------------------------------------------------------
 
             var mcpServerBuilder = builder.Services
