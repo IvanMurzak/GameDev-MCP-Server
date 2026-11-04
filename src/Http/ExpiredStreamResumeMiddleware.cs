@@ -43,17 +43,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (!context.Request.Headers.ContainsKey(LastEventIdHeader))
-            {
-                await _next(context);
-                return;
-            }
-
             try
             {
                 await _next(context);
             }
-            catch (McpException ex) when (IsExpiredCacheEntry(ex) && !context.Response.HasStarted)
+            catch (McpException ex) when (context.Request.Headers.ContainsKey(LastEventIdHeader)
+                && IsExpiredCacheEntry(ex) && !context.Response.HasStarted)
             {
                 _logger.LogWarning("SSE resume for {Method} {Path} referenced expired stream data ({Reason}); answering 400.",
                     context.Request.Method, context.Request.Path, ex.Message);

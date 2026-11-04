@@ -9,7 +9,6 @@
 */
 
 using System;
-using System.Reflection;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
@@ -55,7 +54,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
                 return false;
 
             var environment = builder.Configuration[EnvironmentEnvVar];
-            builder.WebHost.UseSentry(options => Configure(options, dsn!, environment));
+            builder.WebHost.UseSentry(options => Configure(options, dsn, environment));
             return true;
         }
 
@@ -64,7 +63,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
             options.Dsn = dsn.Trim();
             if (!string.IsNullOrWhiteSpace(environment))
                 options.Environment = environment.Trim();
-            options.Release = "gamedev-mcp-server@" + ReleaseVersion();
+            options.Release = "gamedev-mcp-server@" + ServerVersion.Resolve();
             options.SendDefaultPii = false;
             options.MaxRequestBodySize = RequestSize.None;
             options.TracesSampleRate = 0;
@@ -99,15 +98,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
                 if (message.Contains(marker, StringComparison.Ordinal))
                     return true;
             return false;
-        }
-
-        static string ReleaseVersion()
-        {
-            var assembly = typeof(ErrorReporting).Assembly;
-            var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (!string.IsNullOrEmpty(informational))
-                return informational!.Split('+')[0]; // drop the source-commit suffix
-            return assembly.GetName().Version?.ToString() ?? "unknown";
         }
     }
 }

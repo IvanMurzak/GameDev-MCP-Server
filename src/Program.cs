@@ -316,19 +316,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         }
 
         /// <summary>
-        /// Keeps the SSE stream records of a live session in the cache for as long as it is used.
-        ///
-        /// <para>The SDK's defaults put a hard 4h <c>MetadataAbsoluteExpiration</c> on every stream. A
-        /// client keeps its standalone GET stream for the whole session and resumes it with
-        /// <c>Last-Event-ID</c> each time the proxy cuts the long poll (every few dozen seconds behind
-        /// nginx), so after 4h the record vanished under a perfectly active session and every resume
-        /// failed (HTTP 500 before <see cref="Http.ExpiredStreamResumeMiddleware"/>). The SDK allows only
-        /// one GET stream per session, so the client then lost server notifications for good.</para>
-        ///
-        /// <para>Metadata is read on every resume and every poll of an open stream, which renews its
-        /// sliding window; dropping the absolute cap keeps it while it is used, and the sliding window
-        /// still removes it once the session is gone. Events keep the SDK's caps: a resume only needs
-        /// the events since its <c>Last-Event-ID</c>.</para>
+        /// Drops the SDK's 4h absolute cap on SSE stream metadata: a client resumes its one GET stream
+        /// for the whole session, so a live session outlived its record and every resume failed. Reads
+        /// renew the sliding window, which still evicts the record once the session is gone.
         /// </summary>
         internal static void ConfigureEventStreamStore(DistributedCacheEventStreamStoreOptions options)
         {

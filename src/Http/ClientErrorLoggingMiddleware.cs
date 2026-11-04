@@ -13,13 +13,15 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using com.IvanMurzak.McpPlugin.Common;
+using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Http
 {
     /// <summary>
-    /// Logs every 4xx answer (except 401) on the MCP endpoint with the start of its body.
+    /// Logs every 4xx answer (except 401) of this server with the start of its body.
     ///
     /// <para>The MCP SDK writes its rejections (unsupported protocol version, missing session id,
     /// multiple GET streams, …) straight to the response and logs nothing, so a burst of 400s in the
@@ -27,8 +29,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// secret; it is capped at <see cref="MaxCapturedBytes"/>. Only the shape of the request is
     /// logged next to it (which MCP headers were present), never header values or the request body.</para>
     ///
-    /// <para>401 is skipped (see <see cref="IsLoggedStatus"/>), and so is the SignalR hub (<c>/hub/…</c>):
-    /// plugin traffic there is not MCP.</para>
+    /// <para>401 is skipped (see <see cref="IsLoggedStatus"/>), and so is the plugin SignalR hub, whose
+    /// connections are long-lived and not MCP.</para>
     /// </summary>
     public sealed class ClientErrorLoggingMiddleware
     {
@@ -45,7 +47,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (context.Request.Path.StartsWithSegments("/hub", StringComparison.OrdinalIgnoreCase))
+            if (context.Request.Path.StartsWithSegments(Consts.Hub.RemoteApp, StringComparison.OrdinalIgnoreCase))
             {
                 await _next(context);
                 return;
@@ -69,14 +71,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
             var headers = context.Request.Headers;
             _logger.LogWarning(
-                "MCP {Method} {Path} answered {Status}: {Body} (session-id: {HasSession}, protocol-version: {HasProtocol}, last-event-id: {HasLastEventId}, auth: {HasAuth})",
+                "HTTP {Method} {Path} answered {Status}: {Body} (session-id: {HasSession}, protocol-version: {HasProtocol}, last-event-id: {HasLastEventId}, auth: {HasAuth})",
                 context.Request.Method,
                 context.Request.Path,
                 status,
                 capture.CapturedText,
-                headers.ContainsKey("Mcp-Session-Id"),
+                headers.ContainsKey(McpSessionTokenMiddleware.SessionIdHeader),
                 headers.ContainsKey("MCP-Protocol-Version"),
-                headers.ContainsKey("Last-Event-ID"),
+                headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader),
                 headers.ContainsKey("Authorization"));
         }
 
@@ -87,12 +89,17 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         internal static bool IsLoggedStatus(int status)
             => status >= 400 && status < 500 && status != StatusCodes.Status401Unauthorized;
 
-        /// <summary>Pass-through stream that keeps the first bytes written once the status is a 4xx.</summary>
+        /// <summary>
+        /// Pass-through stream that keeps the first bytes of a 4xx body. The status is fixed once the
+        /// first byte is written, so it is checked once; the buffer exists only for a captured answer.
+        /// </summary>
         sealed class ClientErrorCaptureStream : Stream
         {
             readonly Stream _inner;
             readonly HttpResponse _response;
-            readonly MemoryStream _captured = new();
+            bool? _capturing;
+            byte[]? _captured;
+            int _capturedLength;
 
             public ClientErrorCaptureStream(Stream inner, HttpResponse response)
             {
@@ -100,17 +107,21 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 _response = response;
             }
 
-            public string CapturedText => _captured.Length == 0
+            public string CapturedText => _capturedLength == 0
                 ? "<empty>"
-                : Encoding.UTF8.GetString(_captured.GetBuffer(), 0, (int)_captured.Length);
+                : Encoding.UTF8.GetString(_captured!, 0, _capturedLength);
 
             void Capture(ReadOnlySpan<byte> data)
             {
-                if (!IsLoggedStatus(_response.StatusCode))
+                _capturing ??= IsLoggedStatus(_response.StatusCode);
+                if (_capturing != true)
                     return;
-                var room = MaxCapturedBytes - (int)_captured.Length;
-                if (room > 0)
-                    _captured.Write(data.Length > room ? data[..room] : data);
+                _captured ??= new byte[MaxCapturedBytes];
+                var take = Math.Min(data.Length, MaxCapturedBytes - _capturedLength);
+                if (take <= 0)
+                    return;
+                data[..take].CopyTo(_captured.AsSpan(_capturedLength));
+                _capturedLength += take;
             }
 
             public override void Write(byte[] buffer, int offset, int count)
