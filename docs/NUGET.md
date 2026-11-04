@@ -72,6 +72,7 @@ CLI arguments override environment variables.
 | `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |
 | `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP |
 | `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Additional allowed browser Origins (comma/semicolon-separated) |
+| `MCP_SENTRY_DSN` / `MCP_SENTRY_ENVIRONMENT` | — | — | Opt-in crash reporting (Sentry-compatible, e.g. GlitchTip); unset = off |
 | `MCP_LOG_LEVEL` | — | `Info` | Log verbosity floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so it has no CLI equivalent |
 
 In stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.

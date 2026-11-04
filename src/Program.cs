@@ -12,6 +12,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Configure;
+using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Startup;
 using com.IvanMurzak.McpPlugin.Common;
 using com.IvanMurzak.McpPlugin.Common.Utils;
@@ -23,6 +24,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Server;
 using NLog;
 using NLog.Extensions.Logging;
 using StackExchange.Redis;
@@ -138,6 +140,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             builder.Logging.ClearProviders();
             builder.Logging.AddNLog();
 
+            // Opt-in crash reporting (MCP_SENTRY_DSN); after ClearProviders so its logger survives.
+            if (ErrorReporting.TryEnable(builder))
+                logger.Info($"Error reporting enabled (tag service={ErrorReporting.ServiceTag}).");
+
             // Setup MCP Plugin ---------------------------------------------------------------
 
             var mcpServerBuilder = builder.Services
@@ -213,7 +219,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                         sp.GetRequiredService<IDistributedCache>(),
                         sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
                         sessionMigrationTtl));
-                mcpServerBuilder.WithDistributedCacheEventStreamStore();
+                mcpServerBuilder.WithDistributedCacheEventStreamStore(ConfigureEventStreamStore);
             }
 
             // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
@@ -248,6 +254,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
             // Middleware ----------------------------------------------------------------
             // ---------------------------------------------------------------------------
+
+            if (streamableHttp)
+            {
+                // Ahead of UseMcpPluginServer so both wrap the MCP endpoint (and its auth): log the
+                // SDK's otherwise silent 4xx answers, and turn an expired SSE resume into a 400, not a 500.
+                app.UseMiddleware<ClientErrorLoggingMiddleware>();
+                app.UseMiddleware<ExpiredStreamResumeMiddleware>();
+            }
 
             // Setup SignalR ----------------------------------------------------
             app.UseMcpPluginServer(dataArguments);
@@ -292,13 +306,25 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                     catch (Exception ex)
                     {
                         logger.Error(ex, $"Error occurred while processing request: {context.Request.Method} {context.Request.Path}");
-                        return;
+                        // Rethrow: swallowing here (between routing and the endpoint) turned a failed SSE
+                        // resume into an empty 200 and hid request exceptions from error reporting.
+                        throw;
                     }
                 });
             }
             #endregion
 
             return app;
+        }
+
+        /// <summary>
+        /// Drops the SDK's 4h absolute cap on SSE stream metadata: a client resumes its one GET stream
+        /// for the whole session, so a live session outlived its record and every resume failed. Reads
+        /// renew the sliding window, which still evicts the record once the session is gone.
+        /// </summary>
+        internal static void ConfigureEventStreamStore(DistributedCacheEventStreamStoreOptions options)
+        {
+            options.MetadataAbsoluteExpiration = null;
         }
 
         /// <summary>

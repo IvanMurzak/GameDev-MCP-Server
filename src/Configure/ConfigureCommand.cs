@@ -12,7 +12,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using com.IvanMurzak.McpPlugin.AgentConfig;  // AiAgentConfigurator(Registry|Settings), AiAgentConfig, ConnectionMode, ProjectIdentity, ProjectMarker
 using com.IvanMurzak.McpPlugin.Common;       // Consts (+ nested Consts.MCP.Server.AuthOption)
 using com.IvanMurzak.McpPlugin.Common.Utils; // ArgsUtils
@@ -154,7 +153,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Configure
                     return 0;
                 }
 
-                var plan = BuildPlan(options, ResolveExecutablePath(), ResolveServerVersion());
+                var plan = BuildPlan(options, ResolveExecutablePath(), Startup.ServerVersion.Resolve());
 
                 var ok = plan.Config.Configure();
                 if (!ok)
@@ -233,18 +232,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Configure
         private static string ResolveExecutablePath()
             => Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, ServerExecutableName);
 
-        private static string ResolveServerVersion()
-        {
-            var informational = Assembly.GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
-            if (!string.IsNullOrEmpty(informational))
-            {
-                // Strip any "+<git-sha>" build-metadata suffix.
-                var plus = informational.IndexOf('+');
-                return plus >= 0 ? informational.Substring(0, plus) : informational;
-            }
-            return Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "8.0.0";
-        }
 
         private static void PrintUsage()
         {
