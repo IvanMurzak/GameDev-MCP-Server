@@ -26,7 +26,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
     ///
     /// <para>Scope: unhandled exceptions only — the ones that escape the request pipeline (an HTTP 500)
     /// or the process. Log lines never become events (<see cref="SentryLoggingOptions.MinimumEventLevel"/>
-    /// is Critical) and stay as breadcrumbs: the library logs routine, user-side conditions such as
+    /// is Critical) and only warnings stay as breadcrumbs: the library logs routine, user-side conditions such as
     /// "No engine plugin is connected" at Error thousands of times a day. Events carry the tag
     /// <c>service=mcp-server</c>, so they can share a project with other services.</para>
     ///
@@ -68,7 +68,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
             options.MaxRequestBodySize = RequestSize.None;
             options.TracesSampleRate = 0;
             options.MinimumEventLevel = LogLevel.Critical;
-            options.MinimumBreadcrumbLevel = LogLevel.Information;
+            // Warning, not Information: hosting's "Request starting <path+query>" lines are logged outside
+            // the request scope and would ride along on unrelated events (other users' project names).
+            options.MinimumBreadcrumbLevel = LogLevel.Warning;
             options.DefaultTags["service"] = ServiceTag;
             options.AddExceptionFilterForType<OperationCanceledException>();
             options.SetBeforeSend((sentryEvent, _) => Scrub(sentryEvent));

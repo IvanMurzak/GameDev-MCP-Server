@@ -306,7 +306,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                     catch (Exception ex)
                     {
                         logger.Error(ex, $"Error occurred while processing request: {context.Request.Method} {context.Request.Path}");
-                        return;
+                        // Rethrow: swallowing here (between routing and the endpoint) turned a failed SSE
+                        // resume into an empty 200 and hid request exceptions from error reporting.
+                        throw;
                     }
                 });
             }

@@ -29,8 +29,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// secret; it is capped at <see cref="MaxCapturedBytes"/>. Only the shape of the request is
     /// logged next to it (which MCP headers were present), never header values or the request body.</para>
     ///
-    /// <para>401 is skipped (see <see cref="IsLoggedStatus"/>), and so is the plugin SignalR hub, whose
-    /// connections are long-lived and not MCP.</para>
+    /// <para>401 is skipped (see <see cref="IsLoggedStatus"/>). So are the plugin SignalR hub (long-lived,
+    /// not MCP) and the direct tool API (<c>/api/…</c>, <c>/p/{pin}/api/…</c>): a failed tool call's 400
+    /// carries the engine's error text — user project paths and code — and an agent's fix loop would
+    /// write one line per attempt.</para>
     /// </summary>
     public sealed class ClientErrorLoggingMiddleware
     {
@@ -47,7 +49,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (context.Request.Path.StartsWithSegments(Consts.Hub.RemoteApp, StringComparison.OrdinalIgnoreCase))
+            if (!IsLoggedPath(context.Request.Path))
             {
                 await _next(context);
                 return;
@@ -80,6 +82,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 headers.ContainsKey("MCP-Protocol-Version"),
                 headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader),
                 headers.ContainsKey("Authorization"));
+        }
+
+        internal static bool IsLoggedPath(PathString path)
+        {
+            if (path.StartsWithSegments(Consts.Hub.RemoteApp, StringComparison.OrdinalIgnoreCase))
+                return false;
+            var value = path.Value ?? string.Empty;
+            return !(value.Contains("/api/", StringComparison.OrdinalIgnoreCase)
+                || value.EndsWith("/api", StringComparison.OrdinalIgnoreCase));
         }
 
         /// <summary>

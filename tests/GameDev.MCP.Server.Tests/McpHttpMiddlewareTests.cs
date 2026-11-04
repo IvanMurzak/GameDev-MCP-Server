@@ -155,6 +155,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [InlineData(401, "/")]
         [InlineData(500, "/")]
         [InlineData(400, "/hub/mcp-server")]
+        [InlineData(400, "/api/tools/script-execute")]
+        [InlineData(400, "/p/afb0e853/api/tools/script-execute")]
         public async Task OutOfScopeResponses_AreNotLogged(int status, string path)
         {
             var context = NewContext("POST", path);

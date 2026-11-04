@@ -24,7 +24,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// (1.4.0) throw <see cref="McpException"/> "… was not found in the cache" from inside
     /// <c>HandleResumedStreamAsync</c>. Nothing catches it, so Kestrel answers 500 with an empty body.
     /// The SDK already answers 400 "Last-Event-ID is either invalid or expired" when the stream is
-    /// unknown up front; this gives the expired-mid-lookup case the same, spec-shaped answer.</para>
+    /// unknown up front; this gives the expired-mid-lookup case the same, spec-shaped answer. It applies
+    /// only before the first byte: once replayed events were flushed, the exception aborts the stream.</para>
     /// </summary>
     public sealed class ExpiredStreamResumeMiddleware
     {

@@ -55,6 +55,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.False(options.SendDefaultPii);
             Assert.Equal(RequestSize.None, options.MaxRequestBodySize);
             Assert.Equal(LogLevel.Critical, options.MinimumEventLevel);
+            Assert.Equal(LogLevel.Warning, options.MinimumBreadcrumbLevel);
             Assert.Equal(ErrorReporting.ServiceTag, options.DefaultTags["service"]);
         }
 
