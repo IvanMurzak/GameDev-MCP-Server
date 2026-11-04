@@ -12,6 +12,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Configure;
+using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Startup;
 using com.IvanMurzak.McpPlugin.Common;
 using com.IvanMurzak.McpPlugin.Common.Utils;
@@ -23,6 +24,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Server;
 using NLog;
 using NLog.Extensions.Logging;
 using StackExchange.Redis;
@@ -213,7 +215,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                         sp.GetRequiredService<IDistributedCache>(),
                         sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
                         sessionMigrationTtl));
-                mcpServerBuilder.WithDistributedCacheEventStreamStore();
+                mcpServerBuilder.WithDistributedCacheEventStreamStore(ConfigureEventStreamStore);
             }
 
             // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
@@ -248,6 +250,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
             // Middleware ----------------------------------------------------------------
             // ---------------------------------------------------------------------------
+
+            if (streamableHttp)
+            {
+                // Ahead of UseMcpPluginServer so both wrap the MCP endpoint (and its auth): log the
+                // SDK's otherwise silent 4xx answers, and turn an expired SSE resume into a 400, not a 500.
+                app.UseMiddleware<ClientErrorLoggingMiddleware>();
+                app.UseMiddleware<ExpiredStreamResumeMiddleware>();
+            }
 
             // Setup SignalR ----------------------------------------------------
             app.UseMcpPluginServer(dataArguments);
@@ -299,6 +309,26 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             #endregion
 
             return app;
+        }
+
+        /// <summary>
+        /// Keeps the SSE stream records of a live session in the cache for as long as it is used.
+        ///
+        /// <para>The SDK's defaults put a hard 4h <c>MetadataAbsoluteExpiration</c> on every stream. A
+        /// client keeps its standalone GET stream for the whole session and resumes it with
+        /// <c>Last-Event-ID</c> each time the proxy cuts the long poll (every few dozen seconds behind
+        /// nginx), so after 4h the record vanished under a perfectly active session and every resume
+        /// failed (HTTP 500 before <see cref="Http.ExpiredStreamResumeMiddleware"/>). The SDK allows only
+        /// one GET stream per session, so the client then lost server notifications for good.</para>
+        ///
+        /// <para>Metadata is read on every resume and every poll of an open stream, which renews its
+        /// sliding window; dropping the absolute cap keeps it while it is used, and the sliding window
+        /// still removes it once the session is gone. Events keep the SDK's caps: a resume only needs
+        /// the events since its <c>Last-Event-ID</c>.</para>
+        /// </summary>
+        internal static void ConfigureEventStreamStore(DistributedCacheEventStreamStoreOptions options)
+        {
+            options.MetadataAbsoluteExpiration = null;
         }
 
         /// <summary>
