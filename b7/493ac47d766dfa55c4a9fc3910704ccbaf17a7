@@ -1,0 +1,76 @@
+src/Startup/OriginAllowList.cs
+  s_50edd0e0346255::t_234d2213c1ff76 13-15
+  s_50edd0e0346255::t_a3cec7ee714da1 1-12,16-95
+tests/GameDev.MCP.Server.Tests/OriginAllowListTests.cs
+  s_50edd0e0346255::t_d925fb57bb3c79 71-72
+  s_50edd0e0346255::t_a2db685c55e061 1-36,39,42-50,53-70,73-75
+  s_50edd0e0346255::t_83673db4bea46b 37-38,40-41
+  s_50edd0e0346255::t_0e404cd52a6f20 51-52
+tests/GameDev.MCP.Server.Tests/HostAuthDefaultsTests.cs
+  s_50edd0e0346255::t_8b47861c30c421 1-120
+src/Configure/ConfigureCommand.cs
+  s_50edd0e0346255::t_1a165b1debc57a 126
+  s_50edd0e0346255::t_2e8883e4a10bb6 1-15,19-43,45-125,127-213,215-216,219-220,224-260
+  s_50edd0e0346255::t_390547d02c021c 16-18
+  s_50edd0e0346255::t_d67b3c8801138c 44
+  s_50edd0e0346255::t_6da6f9aa5b1ff0 214,217-218,221-223
+tests/GameDev.MCP.Server.Tests/ConfigureCommandTests.cs
+  s_50edd0e0346255::t_f9b2838fd7a25a 80
+  s_50edd0e0346255::t_bcdd1fe3408651 98
+  s_50edd0e0346255::t_a2a0c23728e639 109,112
+  s_50edd0e0346255::t_74c04952a59529 175,179
+  s_50edd0e0346255::t_4ef93f60bbf6da 52
+  s_50edd0e0346255::t_65340075265238 1-51,53-79,81-97,99-108,110-111,113-174,176-178,180-187
+tests/GameDev.MCP.Server.Tests/SessionMigrationRestartResumeTests.cs
+  s_50edd0e0346255::t_cd1862362be1ac 1-125
+src/Program.cs
+  s_50edd0e0346255::t_3ef3fe89594f3e 57-68
+  s_50edd0e0346255::t_9004bd1674dc5b 14-15
+  s_50edd0e0346255::t_9dd431494a27be 69
+  s_50edd0e0346255::t_04d812ae014157 53-56
+  s_50edd0e0346255::t_e66ae951200d84 34,36-41
+  s_50edd0e0346255::t_c8027a27fa1cd2 70-72
+  s_9bca64872d4530::t_4dad80fbe87fb8 73-74,115-134,189,191-194,205-216,270
+src/Startup/HostAuthDefaults.cs
+  s_50edd0e0346255::t_7e041b8259dc33 1-92
+README.md
+  s_3c149407cdd5d4::t_df337cfb0f1abc 112-116,120-158,161-164,166
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_9bca64872d4530::t_cf881fd0794e86 29-33,60-67,72
+docs/NUGET.md
+  s_9bca64872d4530::t_8f721ed8606070 69-73,77-79,82-85,87
+server.json
+  s_9bca64872d4530::t_a3b69218d5f3c3 46-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.12",
+  "base_commit_sha": "b7493ac47d766dfa55c4a9fc3910704ccbaf17a7",
+  "prompts": {},
+  "sessions": {
+    "s_3c149407cdd5d4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "845aef5f-a4aa-4844-b9e6-479df3530c09",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    },
+    "s_50edd0e0346255": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f2164075-e554-49e6-8a57-fdc35f7f7e9d",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    },
+    "s_9bca64872d4530": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a500cf4f6c71629b3",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
