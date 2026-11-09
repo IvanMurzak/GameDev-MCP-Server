@@ -9,7 +9,6 @@
 */
 
 using System;
-using System.Text.Json;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Configure;
 using com.IvanMurzak.GameDev.MCP.Server.Http;
@@ -108,8 +107,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 };
 
                 consoleWriteLine("Location: " + Environment.CurrentDirectory);
-                consoleWriteLine($"Launch arguments: {string.Join(" ", args)}");
-                consoleWriteLine($"Parsed arguments: {JsonSerializer.Serialize(dataArguments, JsonOptions.Pretty)}");
+                consoleWriteLine(LaunchLog.Describe(dataArguments));
 
                 var app = BuildApp(args, dataArguments, httpUnauthenticatedFallback, logger);
 

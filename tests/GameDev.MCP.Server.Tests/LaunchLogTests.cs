@@ -1,0 +1,97 @@
+/*
+┌───────────────────────────────────────────────────────────────────────────┐
+│  Author: Ivan Murzak (https://github.com/IvanMurzak)                      │
+│  Repository: GitHub (https://github.com/IvanMurzak/GameDev-MCP-Server)    │
+│  Copyright (c) 2026 Ivan Murzak                                           │
+│  Licensed under the Apache License, Version 2.0.                          │
+│  See the LICENSE file in the project root for more information.           │
+└───────────────────────────────────────────────────────────────────────────┘
+*/
+
+using System;
+using com.IvanMurzak.GameDev.MCP.Server.Startup;
+using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
+using com.IvanMurzak.McpPlugin.Common;
+using com.IvanMurzak.McpPlugin.Common.Utils;
+using Xunit;
+
+namespace com.IvanMurzak.GameDev.MCP.Server.Tests
+{
+    /// <summary>The startup line ends up in <c>docker logs</c>: no secret may reach it.</summary>
+    [Collection(LiveServerCollection.Name)] // the env-var cases below must not race a live server's startup
+    public class LaunchLogTests
+    {
+        const string Secret = "s3cret-value";
+
+        [Theory]
+        [InlineData("--token", Secret)]
+        [InlineData("--token=" + Secret)]
+        [InlineData("token", Secret)] // the parser needs no dashes
+        [InlineData("--token", "-5" + Secret)] // nor does a value starting with dash-digit end the option
+        public void TokenOnTheCommandLine_IsReportedByPresenceOnly(params string[] args)
+        {
+            var arguments = new DataArguments(args);
+            Assert.EndsWith(Secret, arguments.Token); // else the parser ignored it
+
+            var log = LaunchLog.Describe(arguments);
+
+            Assert.DoesNotContain(Secret, log);
+            Assert.Contains("\"TokenSet\": true", log);
+            Assert.Contains("\"WebhookTokenSet\": false", log);
+        }
+
+        [Theory]
+        [InlineData("--webhook-token", Secret)]
+        [InlineData("--webhook-tool-url=https://hooks.example/" + Secret)]
+        public void WebhookSecrets_AreNotLogged(params string[] args)
+        {
+            var arguments = new DataArguments(args);
+            Assert.Contains(Secret, arguments.WebhookToken + arguments.WebhookToolUrl); // else the parser ignored it
+
+            Assert.DoesNotContain(Secret, LaunchLog.Describe(arguments));
+        }
+
+        [Fact]
+        public void WebhookToken_IsReportedByPresence()
+            => Assert.Contains("\"WebhookTokenSet\": true", LaunchLog.Describe(new DataArguments(new[] { "--webhook-token", Secret })));
+
+        [Theory]
+        [InlineData(Consts.MCP.Server.Env.Token)]
+        [InlineData(Consts.MCP.Server.Env.WebhookToken)]
+        public void SecretFromTheEnvironment_IsNotLogged(string variable)
+        {
+            var before = Environment.GetEnvironmentVariable(variable);
+            Environment.SetEnvironmentVariable(variable, Secret);
+            try
+            {
+                var arguments = new DataArguments(Array.Empty<string>());
+                Assert.True(arguments.Token == Secret || arguments.WebhookToken == Secret); // else nothing was read
+
+                Assert.DoesNotContain(Secret, LaunchLog.Describe(arguments));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(variable, before);
+            }
+        }
+
+        [Fact]
+        public void WithoutTokens_PresenceIsFalse_AndOrdinaryOptionsStayReadable()
+        {
+            var before = Environment.GetEnvironmentVariable(Consts.MCP.Server.Env.Token);
+            Environment.SetEnvironmentVariable(Consts.MCP.Server.Env.Token, null);
+            try
+            {
+                var log = LaunchLog.Describe(new DataArguments(new[] { "--port", "6123", "--bind", "any" }));
+
+                Assert.Contains("6123", log);
+                Assert.Contains("any", log);
+                Assert.Contains("\"TokenSet\": false", log);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(Consts.MCP.Server.Env.Token, before);
+            }
+        }
+    }
+}
