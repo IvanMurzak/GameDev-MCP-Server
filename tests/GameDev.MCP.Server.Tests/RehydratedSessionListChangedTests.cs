@@ -11,10 +11,10 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
-using System.Security.Claims;
+using System.Net.ServerSentEvents;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -22,10 +22,8 @@ using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
 using com.IvanMurzak.McpPlugin.Server.Auth;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -53,16 +51,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         /// <summary>Long enough for a wrongly sent notification to get ahead of the sentinel that ends a count.</summary>
         static readonly TimeSpan Settle = TimeSpan.FromMilliseconds(300);
 
-        static CancellationTokenSource Timeout() => new(TimeSpan.FromSeconds(60));
-
-        static IDistributedCache NewCache() => new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
-
-        /// <summary>The catalogue of one process; the tool collection declares tools/list_changed by itself.</summary>
+        /// <summary>The catalogue of one process, with every capability declaring list_changed.</summary>
         static Action<McpServerOptions> Catalogue(string toolName) => options =>
         {
             options.ToolCollection = [McpServerTool.Create(() => "ok", new McpServerToolCreateOptions { Name = toolName })];
             options.Capabilities = new ServerCapabilities
             {
+                Tools = new ToolsCapability { ListChanged = true },
                 Prompts = new PromptsCapability { ListChanged = true },
                 Resources = new ResourcesCapability { ListChanged = true },
             };
@@ -73,17 +68,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             RawStream stream, McpServer server, int expected, CancellationToken ct)
         {
             var counts = new Dictionary<string, int>();
-            var read = 0;
-            if (expected == 0)
-                await SettleThenSendSentinelAsync(server, ct);
-            while (true)
+            for (var read = 0; ; read++)
             {
-                var method = await stream.ReadMethodAsync(ct);
+                if (read == expected)
+                    await SettleThenSendSentinelAsync(server, ct);
+                var method = await stream.ReadMethodAsync();
                 if (method == Sentinel)
                     return counts;
                 counts[method] = counts.GetValueOrDefault(method) + 1;
-                if (++read == expected)
-                    await SettleThenSendSentinelAsync(server, ct);
             }
         }
 
@@ -93,17 +85,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await server.SendNotificationAsync(Sentinel, ct);
         }
 
-        /// <summary>
-        /// A resume has no response until the sentinel's replay starts it, so a wrongly sent notification
-        /// would come after that sentinel: the count has to run on to a second one.
-        /// </summary>
-        static async Task AssertSilentAfterFirstSentinelAsync(RawStream resumed, McpServer server, CancellationToken ct)
-        {
-            Assert.Equal(Sentinel, await resumed.ReadMethodAsync(ct));
-            Assert.Empty(await CountUntilSentinelAsync(resumed, server, expected: 0, ct));
-        }
-
-        static void AssertOneOfEach(Dictionary<string, int> counts)
+        static void AssertOneOfEach(IReadOnlyDictionary<string, int> counts)
         {
             Assert.Equal(1, counts.GetValueOrDefault(Tools));
             Assert.Equal(1, counts.GetValueOrDefault(Prompts));
@@ -111,153 +93,123 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal(3, counts.Count);
         }
 
+        /// <summary>
+        /// A resume has no response until the sentinel's replay starts it, so a wrongly sent notification
+        /// would come after that sentinel: the count has to run on to a second one.
+        /// </summary>
+        static async Task AssertResumeIsSilentAsync(Scenario scenario, McpServer server, string? lastEventId)
+        {
+            var opening = scenario.Client.OpenStreamAsync(lastEventId, scenario.Ct);
+            await SettleThenSendSentinelAsync(server, scenario.Ct);
+            await using var resumed = await opening;
+
+            Assert.Equal(Sentinel, await resumed.ReadMethodAsync());
+            Assert.Empty(await CountUntilSentinelAsync(resumed, server, expected: 0, scenario.Ct));
+        }
+
         [Theory]
         [InlineData(true)]
         [InlineData(false)]
         public async Task FirstGetOfRehydratedSession_AnnouncesEachCapabilityOnce_AndTheClientSeesTheNewCatalogue(bool withLastEventId)
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
-
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("old-tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
             string lastEventId;
-            await using (var stream = await client.OpenStreamAsync(null, ct))
-                lastEventId = await stream.ReadPrimingIdAsync(ct);
-            await first.DisposeAsync();
+            await using (var stream = await scenario.Client.OpenStreamAsync(null, scenario.Ct))
+                lastEventId = await stream.ReadPrimingIdAsync();
 
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, Catalogue("new-tool"));
-            await using var reattached = await client.OpenStreamAsync(withLastEventId ? lastEventId : null, ct);
-            await reattached.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            var (reattached, server) = await scenario.AttachAsync(withLastEventId ? lastEventId : null);
+            await using var _ = reattached;
 
-            AssertOneOfEach(await CountUntilSentinelAsync(reattached, server, expected: 3, ct));
+            AssertOneOfEach(await CountUntilSentinelAsync(reattached, server, expected: 3, scenario.Ct));
 
-            var tools = await client.ListToolNamesAsync(ct);
+            var tools = await scenario.Client.ListToolNamesAsync(scenario.Ct);
             Assert.Contains("new-tool", tools);
             Assert.DoesNotContain("old-tool", tools);
         }
 
         [Fact]
-        public async Task SecondGet_AnnouncesNothingNew()
+        public async Task ResumeAfterTheAnnouncement_AnnouncesNothingNew()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
 
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("old-tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            await using (var stream = await client.OpenStreamAsync(null, ct))
-                await stream.ReadPrimingIdAsync(ct);
-            await first.DisposeAsync();
-
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, Catalogue("new-tool"));
-            await using var firstGet = await client.OpenStreamAsync(null, ct);
-            await firstGet.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
-            AssertOneOfEach(await CountUntilSentinelAsync(firstGet, server, expected: 3, ct));
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            var (firstGet, server) = await scenario.AttachAsync(null);
+            AssertOneOfEach(await CountUntilSentinelAsync(firstGet, server, expected: 3, scenario.Ct));
             var lastId = firstGet.LastEventId;
             await firstGet.DisposeAsync();
 
-            // The resume has nothing to replay yet, so it has no response headers before the sentinel.
-            var opening = client.OpenStreamAsync(lastId, ct);
-            await SettleThenSendSentinelAsync(server, ct);
-            await using var resumed = await opening;
+            await AssertResumeIsSilentAsync(scenario, server, lastId);
+        }
 
-            await AssertSilentAfterFirstSentinelAsync(resumed, server, ct);
+        [Fact]
+        public async Task RefusedSecondGet_AnnouncesNothingNew()
+        {
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
+
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            var (firstGet, server) = await scenario.AttachAsync(null);
+            await using var _ = firstGet;
+            AssertOneOfEach(await CountUntilSentinelAsync(firstGet, server, expected: 3, scenario.Ct));
+
+            var refused = await Assert.ThrowsAsync<HttpRequestException>(() => scenario.Client.OpenStreamAsync(null, scenario.Ct));
+            Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+
+            Assert.Empty(await CountUntilSentinelAsync(firstGet, server, expected: 0, scenario.Ct));
         }
 
         [Fact]
         public async Task SessionRehydratedByAPost_IsAnnouncedOnItsFirstGet()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
 
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("old-tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            await first.DisposeAsync();
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            Assert.Contains("new-tool", await scenario.Client.ListToolNamesAsync(scenario.Ct));
 
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, Catalogue("new-tool"));
-            Assert.Contains("new-tool", await client.ListToolNamesAsync(ct));
+            var (stream, server) = await scenario.AttachAsync(null);
+            await using var _ = stream;
 
-            await using var stream = await client.OpenStreamAsync(null, ct);
-            await stream.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
-
-            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, ct));
+            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, scenario.Ct));
         }
 
         [Fact]
         public async Task GetResumingAPostStream_DoesNotUseUpTheAnnouncement()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
+            var postEventId = await scenario.Client.PostAndReadFirstEventIdAsync("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}", scenario.Ct);
 
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("old-tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            var postEventId = await client.PostAndReadFirstEventIdAsync("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}", ct);
-            await first.DisposeAsync();
-
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, Catalogue("new-tool"));
+            await scenario.RestartAsync(Catalogue("new-tool"));
 
             // Rehydrates the session on a transport that has no standalone stream, which would drop the announcement.
-            await using (var replayed = await client.OpenStreamAsync(postEventId, ct))
-                await replayed.ReadToEndAsync(ct);
+            await using (var replayed = await scenario.Client.OpenStreamAsync(postEventId, scenario.Ct))
+                await replayed.ReadToEndAsync();
 
-            await using var stream = await client.OpenStreamAsync(null, ct);
-            await stream.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
+            var (stream, server) = await scenario.AttachAsync(null);
+            await using var _ = stream;
 
-            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, ct));
+            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, scenario.Ct));
         }
 
         [Fact]
         public async Task NewSession_FirstGet_AnnouncesNothing()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("tool"));
 
-            await using var server = await RestartableServer.StartAsync(NewCache(), port, ct, Catalogue("tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            await using var stream = await client.OpenStreamAsync(null, ct);
-            await stream.ReadPrimingIdAsync(ct);
+            var (stream, server) = await scenario.AttachAsync(null);
+            await using var _ = stream;
 
-            Assert.Empty(await CountUntilSentinelAsync(stream, await server.WaitForSessionAsync(client.SessionId, ct), expected: 0, ct));
+            Assert.Empty(await CountUntilSentinelAsync(stream, server, expected: 0, scenario.Ct));
         }
 
         [Fact]
         public async Task SameProcessResume_AnnouncesNothing()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("tool"));
+            var (stream, server) = await scenario.AttachAsync(null);
+            var lastEventId = stream.LastEventId;
+            await stream.DisposeAsync();
 
-            await using var host = await RestartableServer.StartAsync(NewCache(), port, ct, Catalogue("tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            string lastEventId;
-            await using (var stream = await client.OpenStreamAsync(null, ct))
-                lastEventId = await stream.ReadPrimingIdAsync(ct);
-            var server = await host.WaitForSessionAsync(client.SessionId, ct);
-
-            var opening = client.OpenStreamAsync(lastEventId, ct);
-            await SettleThenSendSentinelAsync(server, ct);
-            await using var resumed = await opening;
-
-            await AssertSilentAfterFirstSentinelAsync(resumed, server, ct);
+            await AssertResumeIsSilentAsync(scenario, server, lastEventId);
         }
 
         [Fact]
@@ -269,22 +221,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 Prompts = new PromptsCapability(),
             };
 
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(ToolsOnly);
 
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, ToolsOnly);
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            await first.DisposeAsync();
+            await scenario.RestartAsync(ToolsOnly);
+            var (stream, server) = await scenario.AttachAsync(null);
+            await using var _ = stream;
 
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, ToolsOnly);
-            await using var stream = await client.OpenStreamAsync(null, ct);
-            await stream.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
-
-            var counts = await CountUntilSentinelAsync(stream, server, expected: 1, ct);
+            var counts = await CountUntilSentinelAsync(stream, server, expected: 1, scenario.Ct);
             Assert.Equal(1, counts[Tools]);
             Assert.Single(counts);
         }
@@ -301,22 +244,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                         : next(context, token));
             }
 
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
+            await using var scenario = await Scenario.StartAsync(Catalogue("tool"));
 
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("tool"));
-            using var client = new RawClient(port);
-            await client.InitializeAsync(ct);
-            await first.DisposeAsync();
+            await scenario.RestartAsync(FailingToolsAnnouncement);
+            var (stream, server) = await scenario.AttachAsync(null);
+            await using var _ = stream;
 
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, FailingToolsAnnouncement);
-            await using var stream = await client.OpenStreamAsync(null, ct);
-            await stream.ReadPrimingIdAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId, ct);
-
-            var counts = await CountUntilSentinelAsync(stream, server, expected: 2, ct);
+            var counts = await CountUntilSentinelAsync(stream, server, expected: 2, scenario.Ct);
             Assert.False(counts.ContainsKey(Tools));
             Assert.Equal(1, counts[Prompts]);
             Assert.Equal(1, counts[Resources]);
@@ -326,30 +260,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task CSharpClient_AttachedAcrossRestart_IsToldOnce_AndListsTheNewCatalogue()
         {
-            using var timeout = Timeout();
-            var ct = timeout.Token;
-            var cache = NewCache();
-            var port = ServerHarness.FreePort();
-
-            await using var first = await RestartableServer.StartAsync(cache, port, ct, Catalogue("old-tool"));
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
+            var ct = scenario.Ct;
             await using var client = await McpClient.CreateAsync(
                 new HttpClientTransport(new HttpClientTransportOptions
                 {
-                    Endpoint = new Uri($"http://127.0.0.1:{port}/"),
+                    Endpoint = new Uri($"http://127.0.0.1:{scenario.Port}/"),
                     TransportMode = HttpTransportMode.StreamableHttp,
                 }),
                 cancellationToken: ct);
 
             var counts = new ConcurrentDictionary<string, int>();
-            var toldOfTools = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var ended = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var allSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             ValueTask Count(JsonRpcNotification notification, CancellationToken _)
             {
                 counts.AddOrUpdate(notification.Method, 1, (_, count) => count + 1);
-                if (notification.Method == Tools)
-                    toldOfTools.TrySetResult();
-                if (notification.Method == Resources)
-                    ended.TrySetResult();
+                if (counts.Count == 3)
+                    allSeen.TrySetResult();
                 return ValueTask.CompletedTask;
             }
             await using var tools = client.RegisterNotificationHandler(Tools, Count);
@@ -358,71 +285,69 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var sawSentinel = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await using var sentinel = client.RegisterNotificationHandler(Sentinel, (_, _) => { sawSentinel.TrySetResult(); return ValueTask.CompletedTask; });
 
-            await first.WaitForLiveWriterAsync(client.SessionId!, ct);
+            await scenario.Host.WaitForLiveWriterAsync(client.SessionId!, ct);
             Assert.Empty(counts);
-            await first.DisposeAsync();
 
-            await using var second = await RestartableServer.StartAsync(cache, port, ct, Catalogue("new-tool"));
+            await scenario.RestartAsync(Catalogue("new-tool"));
 
-            // Nothing on the server side sends these: the plugin and the collections did not change in this process.
-            await Task.WhenAll(toldOfTools.Task, ended.Task).WaitAsync(ct);
-            var server = await second.WaitForSessionAsync(client.SessionId!, ct);
+            // Nothing else sends these: no collection changed in this process, and no plugin is connected.
+            await allSeen.Task.WaitAsync(ct);
+            var server = await scenario.Host.WaitForSessionAsync(client.SessionId!, ct);
             await SettleThenSendSentinelAsync(server, ct);
             await sawSentinel.Task.WaitAsync(ct);
 
-            Assert.Equal(1, counts[Tools]);
-            Assert.Equal(1, counts[Prompts]);
-            Assert.Equal(1, counts[Resources]);
+            AssertOneOfEach(counts);
 
             var listed = await client.ListToolsAsync(cancellationToken: ct);
             Assert.Contains(listed, tool => tool.Name == "new-tool");
             Assert.DoesNotContain(listed, tool => tool.Name == "old-tool");
         }
 
-        [Fact]
-        public async Task OwnerRefusedCaller_MarksNothing_AndTheOwnerMarksOnce()
+        /// <summary>One initialized raw client on a server that can be restarted over the same cache and port.</summary>
+        sealed class Scenario : IAsyncDisposable
         {
-            const string id = "session-1";
-            static HttpContext As(string subject)
+            readonly CancellationTokenSource _timeout = new(TimeSpan.FromSeconds(60));
+            readonly IDistributedCache _cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+
+            Scenario(int port)
             {
-                var context = new DefaultHttpContext
-                {
-                    User = new ClaimsPrincipal(new ClaimsIdentity(new[] { new Claim("sub", subject, ClaimValueTypes.String, "as") }, "test")),
-                };
-                context.Response.Headers[McpSessionTokenMiddleware.SessionIdHeader] = id;
-                return context;
+                Port = port;
+                Client = new RawClient(port);
             }
 
-            var store = new StandaloneStreamTrackingStore(new DistributedCacheEventStreamStore(
-                Options.Create(new DistributedCacheEventStreamStoreOptions { Cache = NewCache() })));
-            var handler = new SessionMigrationHandler(
-                NewCache(), NullLogger<SessionMigrationHandler>.Instance, SessionMigrationHandler.DefaultSessionTtl, store);
-            var init = new InitializeRequestParams { ProtocolVersion = Protocol, Capabilities = new ClientCapabilities(), ClientInfo = new Implementation { Name = "c", Version = "1" } };
-            await handler.OnSessionInitializedAsync(As("alice"), id, init, CancellationToken.None);
+            public int Port { get; }
+            public RawClient Client { get; }
+            public RestartableServer Host { get; private set; } = null!;
+            public CancellationToken Ct => _timeout.Token;
 
-            // Persisting a new session marks nothing either.
-            Assert.False(store.TryTakeRehydrated(id));
+            public static async Task<Scenario> StartAsync(Action<McpServerOptions> catalogue)
+            {
+                var scenario = new Scenario(ServerHarness.FreePort());
+                scenario.Host = await RestartableServer.StartAsync(scenario._cache, scenario.Port, scenario.Ct, catalogue);
+                await scenario.Client.InitializeAsync(scenario.Ct);
+                return scenario;
+            }
 
-            Assert.Null(await handler.AllowSessionMigrationAsync(As("mallory"), id, CancellationToken.None));
-            Assert.False(store.TryTakeRehydrated(id));
+            public async Task RestartAsync(Action<McpServerOptions> catalogue)
+            {
+                await Host.DisposeAsync();
+                Host = await RestartableServer.StartAsync(_cache, Port, Ct, catalogue);
+            }
 
-            Assert.NotNull(await handler.AllowSessionMigrationAsync(As("alice"), id, CancellationToken.None));
-            Assert.True(store.TryTakeRehydrated(id));
-            Assert.False(store.TryTakeRehydrated(id));
-        }
+            /// <summary>Opens a standalone stream, up to its priming event, and finds the session on the server.</summary>
+            public async Task<(RawStream Stream, McpServer Server)> AttachAsync(string? lastEventId)
+            {
+                var stream = await Client.OpenStreamAsync(lastEventId, Ct);
+                await stream.ReadPrimingIdAsync();
+                return (stream, await Host.WaitForSessionAsync(Client.SessionId, Ct));
+            }
 
-        [Fact]
-        public void Marks_AreBounded_AndTheOldestGoesFirst()
-        {
-            var store = new StandaloneStreamTrackingStore(new DistributedCacheEventStreamStore(
-                Options.Create(new DistributedCacheEventStreamStoreOptions { Cache = NewCache() })));
-
-            for (var i = 0; i <= StandaloneStreamTrackingStore.MaxPendingRehydrations; i++)
-                store.MarkRehydrated("session-" + i);
-
-            Assert.False(store.TryTakeRehydrated("session-0"));
-            Assert.True(store.TryTakeRehydrated("session-1"));
-            Assert.True(store.TryTakeRehydrated("session-" + StandaloneStreamTrackingStore.MaxPendingRehydrations));
+            public async ValueTask DisposeAsync()
+            {
+                await Host.DisposeAsync();
+                Client.Dispose();
+                _timeout.Dispose();
+            }
         }
 
         /// <summary>A plain HTTP client, so the test decides exactly what each GET carries.</summary>
@@ -430,7 +355,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         {
             readonly HttpClient _http;
 
-            public RawClient(int port) => _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = System.Threading.Timeout.InfiniteTimeSpan };
+            public RawClient(int port) => _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = Timeout.InfiniteTimeSpan };
 
             public string SessionId { get; private set; } = string.Empty;
 
@@ -449,27 +374,24 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             public async Task<List<string>> ListToolNamesAsync(CancellationToken ct)
             {
-                using var response = await PostAsync("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}", ct);
-                response.EnsureSuccessStatusCode();
-                var data = (await response.Content.ReadAsStringAsync(ct))
-                    .Split('\n')
-                    .Select(static line => line.Trim())
-                    .Last(static line => line.StartsWith("data: {", StringComparison.Ordinal));
-                using var json = JsonDocument.Parse(data["data: ".Length..]);
+                var events = await PostAndReadEventsAsync("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/list\"}", ct);
+                using var json = JsonDocument.Parse(events.Last(static e => e.Data.Length > 0).Data);
                 return json.RootElement.GetProperty("result").GetProperty("tools").EnumerateArray()
                     .Select(static tool => tool.GetProperty("name").GetString()!)
                     .ToList();
             }
 
             public async Task<string> PostAndReadFirstEventIdAsync(string body, CancellationToken ct)
+                => (await PostAndReadEventsAsync(body, ct)).First(static e => e.EventId != null).EventId!;
+
+            async Task<List<SseItem<string>>> PostAndReadEventsAsync(string body, CancellationToken ct)
             {
                 using var response = await PostAsync(body, ct);
                 response.EnsureSuccessStatusCode();
-                var id = (await response.Content.ReadAsStringAsync(ct))
-                    .Split('\n')
-                    .Select(static line => line.Trim())
-                    .First(static line => line.StartsWith("id: ", StringComparison.Ordinal));
-                return id["id: ".Length..];
+                var events = new List<SseItem<string>>();
+                await foreach (var item in SseParser.Create(await response.Content.ReadAsStreamAsync(ct)).EnumerateAsync(ct))
+                    events.Add(item);
+                return events;
             }
 
             public async Task<RawStream> OpenStreamAsync(string? lastEventId, CancellationToken ct)
@@ -479,11 +401,19 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 request.Headers.TryAddWithoutValidation(McpSessionTokenMiddleware.SessionIdHeader, SessionId);
                 request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Protocol);
                 if (lastEventId != null)
-                    request.Headers.TryAddWithoutValidation("Last-Event-ID", lastEventId);
+                    request.Headers.TryAddWithoutValidation(ExpiredStreamResumeMiddleware.LastEventIdHeader, lastEventId);
 
                 var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
-                response.EnsureSuccessStatusCode();
-                return new RawStream(response, await response.Content.ReadAsStreamAsync(ct));
+                try
+                {
+                    response.EnsureSuccessStatusCode();
+                }
+                catch
+                {
+                    response.Dispose();
+                    throw;
+                }
+                return new RawStream(response, SseParser.Create(await response.Content.ReadAsStreamAsync(ct)).EnumerateAsync(ct).GetAsyncEnumerator(ct));
             }
 
             Task<HttpResponseMessage> PostAsync(string body, CancellationToken ct)
@@ -504,56 +434,34 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         sealed class RawStream : IAsyncDisposable
         {
             readonly HttpResponseMessage _response;
-            readonly StreamReader _reader;
+            readonly IAsyncEnumerator<SseItem<string>> _events;
 
-            public RawStream(HttpResponseMessage response, Stream body)
+            public RawStream(HttpResponseMessage response, IAsyncEnumerator<SseItem<string>> events)
             {
                 _response = response;
-                _reader = new StreamReader(body);
+                _events = events;
             }
 
             public string? LastEventId { get; private set; }
 
-            /// <summary>The next event as its id and data, null at the end of the response.</summary>
-            async Task<(string? Id, string Data)?> ReadEventAsync(CancellationToken ct)
+            async Task<SseItem<string>> ReadEventAsync()
             {
-                string? id = null;
-                var data = new StringBuilder();
-                var any = false;
-                while (await _reader.ReadLineAsync(ct) is { } line)
-                {
-                    if (line.Length == 0)
-                    {
-                        if (any)
-                        {
-                            if (id != null)
-                                LastEventId = id;
-                            return (id, data.ToString());
-                        }
-                        continue;
-                    }
-                    any = true;
-                    if (line.StartsWith("id: ", StringComparison.Ordinal))
-                        id = line["id: ".Length..];
-                    else if (line.StartsWith("data: ", StringComparison.Ordinal))
-                        data.Append(line["data: ".Length..]);
-                }
-                return null;
+                if (!await _events.MoveNextAsync())
+                    throw new InvalidOperationException("The stream ended before the next event.");
+                LastEventId = _events.Current.EventId ?? LastEventId;
+                return _events.Current;
             }
 
             /// <summary>The first event of a new stream, which carries no message, only an id.</summary>
-            public async Task<string> ReadPrimingIdAsync(CancellationToken ct)
-            {
-                var item = await ReadEventAsync(ct) ?? throw new InvalidOperationException("The stream ended before its priming event.");
-                return item.Id ?? throw new InvalidOperationException("The priming event has no id.");
-            }
+            public async Task<string> ReadPrimingIdAsync()
+                => (await ReadEventAsync()).EventId ?? throw new InvalidOperationException("The priming event has no id.");
 
             /// <summary>The method of the next notification.</summary>
-            public async Task<string> ReadMethodAsync(CancellationToken ct)
+            public async Task<string> ReadMethodAsync()
             {
                 while (true)
                 {
-                    var item = await ReadEventAsync(ct) ?? throw new InvalidOperationException("The stream ended before the next notification.");
+                    var item = await ReadEventAsync();
                     if (string.IsNullOrWhiteSpace(item.Data))
                         continue;
                     using var json = JsonDocument.Parse(item.Data);
@@ -561,18 +469,24 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 }
             }
 
-            public async Task ReadToEndAsync(CancellationToken ct)
+            public async Task ReadToEndAsync()
             {
-                while (await ReadEventAsync(ct) is not null)
+                while (await _events.MoveNextAsync())
                 {
                 }
             }
 
-            public ValueTask DisposeAsync()
+            public async ValueTask DisposeAsync()
             {
-                _reader.Dispose();
                 _response.Dispose();
-                return ValueTask.CompletedTask;
+                try
+                {
+                    await _events.DisposeAsync();
+                }
+                catch (Exception ex) when (ex is ObjectDisposedException or NotSupportedException or OperationCanceledException)
+                {
+                    // Only a read still in flight can object, and this stream is being abandoned.
+                }
             }
         }
     }

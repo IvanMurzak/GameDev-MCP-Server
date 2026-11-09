@@ -9,7 +9,6 @@
 */
 
 using System;
-using System.Collections.Concurrent;
 using System.Net.ServerSentEvents;
 using System.Text;
 using System.Threading;
@@ -17,17 +16,13 @@ using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
 using com.IvanMurzak.McpPlugin.Server.Auth;
-using Microsoft.AspNetCore.Builder;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
-using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;

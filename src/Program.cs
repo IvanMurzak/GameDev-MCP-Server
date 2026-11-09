@@ -212,7 +212,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                     builder.Configuration[SessionMigrationHandler.MigrationTtlEnvVar],
                     builder.Configuration[SessionMigrationHandler.IdleTimeoutEnvVar]);
 
-                AddSessionMigration(builder.Services, sessionMigrationTtl);
+                builder.Services.AddSingleton<ISessionMigrationHandler>(sp =>
+                    new SessionMigrationHandler(
+                        sp.GetRequiredService<IDistributedCache>(),
+                        sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
+                        sessionMigrationTtl));
                 mcpServerBuilder.WithDistributedCacheEventStreamStore(ConfigureEventStreamStore);
                 AddStandaloneStreamTracking(builder.Services);
             }
@@ -333,17 +337,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             services.AddSingleton<DistributedCacheEventStreamStore>();
             services.AddSingleton(sp => new StandaloneStreamTrackingStore(sp.GetRequiredService<DistributedCacheEventStreamStore>()));
             services.AddSingleton<ISseEventStreamStore>(sp => sp.GetRequiredService<StandaloneStreamTrackingStore>());
-        }
-
-        /// <summary>Registers the migration handler, reporting each rehydration to the tracking store.</summary>
-        internal static void AddSessionMigration(IServiceCollection services, TimeSpan ttl)
-        {
-            services.AddSingleton<ISessionMigrationHandler>(sp =>
-                new SessionMigrationHandler(
-                    sp.GetRequiredService<IDistributedCache>(),
-                    sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
-                    ttl,
-                    sp.GetRequiredService<StandaloneStreamTrackingStore>()));
         }
 
         /// <summary>

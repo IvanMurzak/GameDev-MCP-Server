@@ -18,7 +18,6 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using com.IvanMurzak.GameDev.MCP.Server.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Logging;
@@ -98,7 +97,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         private readonly IDistributedCache _cache;
         private readonly ILogger<SessionMigrationHandler> _logger;
         private readonly TimeSpan _sessionTtl;
-        private readonly StandaloneStreamTrackingStore? _streams;
         private readonly DistributedCacheEntryOptions _cacheEntryOptions;
 
         public SessionMigrationHandler(
@@ -111,13 +109,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         public SessionMigrationHandler(
             IDistributedCache cache,
             ILogger<SessionMigrationHandler> logger,
-            TimeSpan sessionTtl,
-            StandaloneStreamTrackingStore? streams = null)
+            TimeSpan sessionTtl)
         {
             _cache = cache ?? throw new ArgumentNullException(nameof(cache));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _sessionTtl = sessionTtl > TimeSpan.Zero ? sessionTtl : DefaultSessionTtl;
-            _streams = streams;
             // ABSOLUTE (relative-to-now) expiration, deliberately NOT sliding. The previous
             // implementation used SlidingExpiration on the assumption that an active client
             // would refresh the window on every reconnect — that assumption was FALSE for this
@@ -310,7 +306,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 _logger.LogInformation(
                     "Rehydrated MCP session from distributed cache after process restart. SessionId={SessionId}",
                     sessionId);
-                _streams?.MarkRehydrated(sessionId);
                 return initializeParams;
             }
             catch (JsonException ex)

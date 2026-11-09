@@ -43,8 +43,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// moved to the writer's first event instead, so it still gets everything the new stream sent.</para>
     ///
     /// <para>A rehydrated session had no subscriber while it was not in memory, so a catalogue change in
-    /// that time is lost for good. So the first standalone stream of a session rehydrated in this process
-    /// gets one <c>list_changed</c> per capability that declares it, and the client lists again.</para>
+    /// that time is lost for good. So the standalone stream of a session rehydrated in this process gets
+    /// one <c>list_changed</c> per capability that declares it, and the client lists again.</para>
     ///
     /// <para>Liveness is per process, so this assumes one server process per Redis key prefix.</para>
     /// </summary>
@@ -70,11 +70,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             if (!HttpMethods.IsGet(request.Method))
                 return _next(context);
 
-            var sessionId = request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString();
-            if (sessionId.Length > 0)
-                context.Response.OnStarting(() => AnnounceIfRehydrated(context, sessionId));
+            context.Response.OnStarting(AnnounceIfRehydrated, context);
 
             if (request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
+                && request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString() is var sessionId
                 && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId, out var sequence)
                 && eventStreamId == StreamableHttpServerTransport.UnsolicitedMessageStreamId
                 && eventSessionId == sessionId)
@@ -98,29 +97,37 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         /// <summary>
         /// Runs when the SDK starts the response, which is after it migrated the session (inside the SDK, so
-        /// after this middleware ran). For a standalone stream that is the priming event's write: the SDK
-        /// holds the transport's send lock there, and every send takes that lock, so the sends must not be
-        /// awaited on this call stack. Task.Run lets them wait for the lock, and by then the transport has
+        /// after this middleware ran). All of this is the SDK's own state, so nothing has to be recorded:
+        /// <list type="bullet">
+        ///   <item>Only an accepted request has the <see cref="McpServer"/> feature.</item>
+        ///   <item>Only a rehydrated session knows its client up front: the SDK sets
+        ///   <see cref="McpServerOptions.KnownClientCapabilities"/> during migration, on that session's options.</item>
+        ///   <item>A remaining Last-Event-ID is a resume of an old stream (a POST stream, or this session's stream
+        ///   in this process), which has its own events. <see cref="InvokeAsync"/> removed the header if it was
+        ///   a standalone stream of a previous process.</item>
+        ///   <item>The SDK accepts one plain GET per session and refuses the others, so only the first gets a 200.</item>
+        /// </list>
+        /// That leaves the session's first standalone stream, where this runs on the priming event's write: the
+        /// SDK holds the transport's send lock there, and every send takes that lock, so the sends must not
+        /// be awaited on this call stack. Task.Run lets them wait for the lock, and by then the transport has
         /// the stream they are written to.
-        ///
-        /// <para>The mark stays for any other response. No <see cref="McpServer"/> feature: the SDK refused
-        /// the request. No live writer: the GET resumed a POST stream, and the transport would drop the
-        /// notifications because it has no standalone stream yet.</para>
         /// </summary>
-        Task AnnounceIfRehydrated(HttpContext context, string sessionId)
+        Task AnnounceIfRehydrated(object state)
         {
+            var context = (HttpContext)state;
             if (context.Features.Get<McpServer>() is { } server
-                && _streams.HasLiveWriter(sessionId)
-                && _streams.TryTakeRehydrated(sessionId))
+                && server.ServerOptions.KnownClientCapabilities is not null
+                && !context.Request.Headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader)
+                && context.Response.StatusCode == StatusCodes.Status200OK)
             {
-                _ = Task.Run(() => SendListChangedAsync(server, sessionId));
+                _ = Task.Run(() => SendListChangedAsync(server));
             }
             return Task.CompletedTask;
         }
 
-        async Task SendListChangedAsync(McpServer server, string sessionId)
+        async Task SendListChangedAsync(McpServer server)
         {
-            foreach (var method in DeclaredListChanged(server.ServerOptions))
+            foreach (var method in DeclaredListChanged(server.ServerOptions.Capabilities))
             {
                 try
                 {
@@ -130,22 +137,18 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 catch (Exception ex)
                 {
                     // Only a hint is lost: the stream is not ours to break, and the next capability may still get through.
-                    _logger.LogWarning(ex, "Could not announce {Method} to a rehydrated session. SessionId={SessionId}", method, sessionId);
+                    _logger.LogWarning(ex, "Could not announce {Method} to a rehydrated session. SessionId={SessionId}", method, server.SessionId);
                 }
             }
         }
 
-        /// <summary>
-        /// The list_changed notifications the server declares. The SDK's effective capabilities are not
-        /// public, so this mirrors how it derives them: the option, or a collection, which forces the flag on.
-        /// </summary>
-        static IEnumerable<string> DeclaredListChanged(McpServerOptions options)
+        static IEnumerable<string> DeclaredListChanged(ServerCapabilities? capabilities)
         {
-            if (options.Capabilities?.Tools?.ListChanged == true || options.ToolCollection is not null)
+            if (capabilities?.Tools?.ListChanged == true)
                 yield return NotificationMethods.ToolListChangedNotification;
-            if (options.Capabilities?.Prompts?.ListChanged == true || options.PromptCollection is not null)
+            if (capabilities?.Prompts?.ListChanged == true)
                 yield return NotificationMethods.PromptListChangedNotification;
-            if (options.Capabilities?.Resources?.ListChanged == true || options.ResourceCollection is not null)
+            if (capabilities?.Resources?.ListChanged == true)
                 yield return NotificationMethods.ResourceListChangedNotification;
         }
 

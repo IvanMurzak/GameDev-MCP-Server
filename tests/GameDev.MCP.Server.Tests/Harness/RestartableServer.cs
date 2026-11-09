@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -49,7 +50,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
             builder.Logging.ClearProviders();
             builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
             builder.Services.AddSingleton(cache);
-            Program.AddSessionMigration(builder.Services, SessionMigrationHandler.DefaultSessionTtl);
+            builder.Services.AddSingleton<ISessionMigrationHandler>(sp => new SessionMigrationHandler(
+                cache, NullLogger<SessionMigrationHandler>.Instance));
             builder.Services
                 .AddMcpServer(configure ?? (o => o.Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } }))
                 .WithHttpTransport(o =>
