@@ -220,6 +220,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                         sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
                         sessionMigrationTtl));
                 mcpServerBuilder.WithDistributedCacheEventStreamStore(ConfigureEventStreamStore);
+                AddStandaloneStreamTracking(builder.Services);
             }
 
             // builder.WebHost.UseUrls(Consts.Hub.DefaultEndpoint);
@@ -261,6 +262,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 // SDK's otherwise silent 4xx answers, and turn an expired SSE resume into a 400, not a 500.
                 app.UseMiddleware<ClientErrorLoggingMiddleware>();
                 app.UseMiddleware<ExpiredStreamResumeMiddleware>();
+                if (sessionPersistenceEnabled)
+                    app.UseMiddleware<StaleStandaloneStreamResumeMiddleware>();
             }
 
             // Setup SignalR ----------------------------------------------------
@@ -325,6 +328,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         internal static void ConfigureEventStreamStore(DistributedCacheEventStreamStoreOptions options)
         {
             options.MetadataAbsoluteExpiration = null;
+        }
+
+        /// <summary>Wraps the distributed-cache event store so the SDK writes through the tracking store (the last registration wins).</summary>
+        internal static void AddStandaloneStreamTracking(IServiceCollection services)
+        {
+            services.AddSingleton<DistributedCacheEventStreamStore>();
+            services.AddSingleton(sp => new StandaloneStreamTrackingStore(sp.GetRequiredService<DistributedCacheEventStreamStore>()));
+            services.AddSingleton<ISseEventStreamStore>(sp => sp.GetRequiredService<StandaloneStreamTrackingStore>());
         }
 
         /// <summary>
