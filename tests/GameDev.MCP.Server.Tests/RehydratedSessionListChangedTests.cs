@@ -129,6 +129,31 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         }
 
         [Fact]
+        public async Task EmptyLastEventId_IsAPlainGet_AndIsAnnounced()
+        {
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
+
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            var (stream, server) = await scenario.AttachAsync(string.Empty);
+            await using var _ = stream;
+
+            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, scenario.Ct));
+        }
+
+        /// <summary>Before 2025-11-25 a stream has no priming event: a flush starts the response, with no writer in the store.</summary>
+        [Fact]
+        public async Task ProtocolWithoutAPrimingEvent_IsAnnounced()
+        {
+            await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"), protocol: "2025-06-18");
+
+            await scenario.RestartAsync(Catalogue("new-tool"));
+            await using var stream = await scenario.Client.OpenStreamAsync(null, scenario.Ct);
+            var server = await scenario.Host.WaitForSessionAsync(scenario.Client.SessionId, scenario.Ct);
+
+            AssertOneOfEach(await CountUntilSentinelAsync(stream, server, expected: 3, scenario.Ct));
+        }
+
+        [Fact]
         public async Task ResumeAfterTheAnnouncement_AnnouncesNothingNew()
         {
             await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
@@ -173,14 +198,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         }
 
         [Fact]
-        public async Task GetResumingAPostStream_DoesNotUseUpTheAnnouncement()
+        public async Task SessionRehydratedByAPostStreamResume_IsAnnouncedOnItsFirstStandaloneGet()
         {
             await using var scenario = await Scenario.StartAsync(Catalogue("old-tool"));
             var postEventId = await scenario.Client.PostAndReadFirstEventIdAsync("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"tools/list\"}", scenario.Ct);
 
             await scenario.RestartAsync(Catalogue("new-tool"));
 
-            // Rehydrates the session on a transport that has no standalone stream, which would drop the announcement.
+            // Rehydrates the session on a transport that has no standalone stream yet.
             await using (var replayed = await scenario.Client.OpenStreamAsync(postEventId, scenario.Ct))
                 await replayed.ReadToEndAsync();
 
@@ -309,10 +334,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             readonly CancellationTokenSource _timeout = new(TimeSpan.FromSeconds(60));
             readonly IDistributedCache _cache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
 
-            Scenario(int port)
+            Scenario(int port, string protocol)
             {
                 Port = port;
-                Client = new RawClient(port);
+                Client = new RawClient(port, protocol);
             }
 
             public int Port { get; }
@@ -320,9 +345,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             public RestartableServer Host { get; private set; } = null!;
             public CancellationToken Ct => _timeout.Token;
 
-            public static async Task<Scenario> StartAsync(Action<McpServerOptions> catalogue)
+            public static async Task<Scenario> StartAsync(Action<McpServerOptions> catalogue, string protocol = Protocol)
             {
-                var scenario = new Scenario(ServerHarness.FreePort());
+                var scenario = new Scenario(ServerHarness.FreePort(), protocol);
                 scenario.Host = await RestartableServer.StartAsync(scenario._cache, scenario.Port, scenario.Ct, catalogue);
                 await scenario.Client.InitializeAsync(scenario.Ct);
                 return scenario;
@@ -354,15 +379,20 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         sealed class RawClient : IDisposable
         {
             readonly HttpClient _http;
+            readonly string _protocol;
 
-            public RawClient(int port) => _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = Timeout.InfiniteTimeSpan };
+            public RawClient(int port, string protocol)
+            {
+                _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = Timeout.InfiniteTimeSpan };
+                _protocol = protocol;
+            }
 
             public string SessionId { get; private set; } = string.Empty;
 
             public async Task InitializeAsync(CancellationToken ct)
             {
                 using var response = await PostAsync(
-                    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"" + Protocol + "\",\"capabilities\":{},\"clientInfo\":{\"name\":\"raw\",\"version\":\"1\"}}}",
+                    "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"" + _protocol + "\",\"capabilities\":{},\"clientInfo\":{\"name\":\"raw\",\"version\":\"1\"}}}",
                     ct);
                 response.EnsureSuccessStatusCode();
                 SessionId = response.Headers.GetValues(McpSessionTokenMiddleware.SessionIdHeader).Single();
@@ -399,7 +429,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 var request = new HttpRequestMessage(HttpMethod.Get, "/");
                 request.Headers.TryAddWithoutValidation("Accept", "text/event-stream");
                 request.Headers.TryAddWithoutValidation(McpSessionTokenMiddleware.SessionIdHeader, SessionId);
-                request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Protocol);
+                request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", _protocol);
                 if (lastEventId != null)
                     request.Headers.TryAddWithoutValidation(ExpiredStreamResumeMiddleware.LastEventIdHeader, lastEventId);
 
@@ -423,7 +453,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 if (SessionId.Length > 0)
                 {
                     request.Headers.TryAddWithoutValidation(McpSessionTokenMiddleware.SessionIdHeader, SessionId);
-                    request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", Protocol);
+                    request.Headers.TryAddWithoutValidation("MCP-Protocol-Version", _protocol);
                 }
                 return _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
             }

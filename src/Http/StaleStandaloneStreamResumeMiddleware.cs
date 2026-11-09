@@ -40,7 +40,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     ///
     /// <para>A client can also miss the new stream's first event and retry with its old id. A new writer
     /// restarts its sequence, so the SDK would wait silently for a sequence far ahead; such a resume is
-    /// moved to the writer's first event instead, so it still gets everything the new stream sent.</para>
+    /// moved to the writer's first event instead, so it gets what the new stream sent. An old id within the
+    /// writer's sequence cannot be told from one of its own, and resumes from there.</para>
     ///
     /// <para>A rehydrated session had no subscriber while it was not in memory, so a catalogue change in
     /// that time is lost for good. So the standalone stream of a session rehydrated in this process gets
@@ -104,20 +105,20 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         ///   <see cref="McpServerOptions.KnownClientCapabilities"/> during migration, on that session's options.</item>
         ///   <item>A remaining Last-Event-ID is a resume of an old stream (a POST stream, or this session's stream
         ///   in this process), which has its own events. <see cref="InvokeAsync"/> removed the header if it was
-        ///   a standalone stream of a previous process.</item>
+        ///   a standalone stream of a previous process. Like the SDK, an empty value counts as no header.</item>
         ///   <item>The SDK accepts one plain GET per session and refuses the others, so only the first gets a 200.</item>
         /// </list>
-        /// That leaves the session's first standalone stream, where this runs on the priming event's write: the
-        /// SDK holds the transport's send lock there, and every send takes that lock, so the sends must not
-        /// be awaited on this call stack. Task.Run lets them wait for the lock, and by then the transport has
-        /// the stream they are written to.
+        /// That leaves the session's first standalone stream, where this runs on the priming event's write (a
+        /// flush on a protocol without one): the SDK holds the transport's send lock there, and every send
+        /// takes that lock, so the sends must not be awaited on this call stack. Task.Run lets them wait for
+        /// the lock, and by then the transport has the stream they are written to.
         /// </summary>
         Task AnnounceIfRehydrated(object state)
         {
             var context = (HttpContext)state;
             if (context.Features.Get<McpServer>() is { } server
                 && server.ServerOptions.KnownClientCapabilities is not null
-                && !context.Request.Headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader)
+                && string.IsNullOrEmpty(context.Request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader])
                 && context.Response.StatusCode == StatusCodes.Status200OK)
             {
                 _ = Task.Run(() => SendListChangedAsync(server));
