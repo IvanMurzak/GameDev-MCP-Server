@@ -38,51 +38,21 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
     /// <summary>A silent standalone stream must carry bytes, or clients and proxies take it for dead.</summary>
     public class SseKeepAliveTests
     {
-        static readonly TimeSpan Silence = TimeSpan.FromMilliseconds(1);
-
         static string Text(MemoryStream stream) => Encoding.UTF8.GetString(stream.ToArray());
 
         static async Task WriteAsync(Stream stream, string text) => await stream.WriteAsync(Encoding.UTF8.GetBytes(text));
 
-        static async Task SilentAsync() => await Task.Delay(20);
-
         [Fact]
-        public async Task NoComment_BeforeTheStreamStarted()
+        public async Task Comment_OnANewStream_AndBetweenEvents()
         {
             var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
-            await SilentAsync();
+            var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
 
-            await stream.WriteCommentIfSilentAsync(Silence, default);
-
-            Assert.Empty(Text(inner));
-        }
-
-        [Fact]
-        public async Task Comment_AfterTheStreamStartedWithAFlush()
-        {
-            // What the SDK does without an event store: headers flushed, no event yet.
-            var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
-            await stream.FlushAsync();
-            await SilentAsync();
-
-            await stream.WriteCommentIfSilentAsync(Silence, default);
-
-            Assert.Equal(": keep-alive\n\n", Text(inner));
-        }
-
-        [Fact]
-        public async Task Comment_BetweenEvents()
-        {
-            var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
+            await stream.WriteCommentAsync(default);
             await WriteAsync(stream, "data: {}\n\n");
-            await SilentAsync();
+            await stream.WriteCommentAsync(default);
 
-            await stream.WriteCommentIfSilentAsync(Silence, default);
-
-            Assert.Equal("data: {}\n\n: keep-alive\n\n", Text(inner));
+            Assert.Equal(": keep-alive\n\ndata: {}\n\n: keep-alive\n\n", Text(inner));
         }
 
         [Theory]
@@ -91,39 +61,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         public async Task NoComment_InsideAnEvent(string partial)
         {
             var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
+            var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
             await WriteAsync(stream, partial);
-            await SilentAsync();
 
-            await stream.WriteCommentIfSilentAsync(Silence, default);
+            await stream.WriteCommentAsync(default);
 
             Assert.Equal(partial, Text(inner));
-        }
-
-        [Fact]
-        public async Task EventEndingAcrossTwoWrites_IsABoundary()
-        {
-            var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
-            await WriteAsync(stream, "data: {}\n");
-            await WriteAsync(stream, "\n");
-            await SilentAsync();
-
-            await stream.WriteCommentIfSilentAsync(Silence, default);
-
-            Assert.EndsWith(": keep-alive\n\n", Text(inner));
-        }
-
-        [Fact]
-        public async Task NoComment_WhenTheStreamWasJustActive()
-        {
-            var inner = new MemoryStream();
-            using var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
-            await WriteAsync(stream, "data: {}\n\n");
-
-            await stream.WriteCommentIfSilentAsync(TimeSpan.FromMinutes(1), default);
-
-            Assert.Equal("data: {}\n\n", Text(inner));
         }
 
         [Theory]
@@ -133,6 +76,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [InlineData("-5", 30)]
         [InlineData("45", 45)]
         [InlineData("0", 0)]
+        [InlineData("999999999", 86400)]
         public void Interval_IsConfigurable(string? raw, int seconds)
             => Assert.Equal(TimeSpan.FromSeconds(seconds), SseKeepAliveMiddleware.ResolveInterval(raw));
 

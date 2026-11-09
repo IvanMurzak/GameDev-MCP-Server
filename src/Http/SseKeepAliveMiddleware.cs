@@ -43,16 +43,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             _interval = interval;
         }
 
-        /// <summary>The configured interval; a malformed or negative value falls back to the default.</summary>
+        /// <summary>The configured interval, at most a day; a malformed or negative value falls back to the default.</summary>
         public static TimeSpan ResolveInterval(string? raw)
             => int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out var seconds)
-                ? TimeSpan.FromSeconds(seconds)
+                ? TimeSpan.FromSeconds(Math.Min(seconds, 86400))
                 : DefaultInterval;
 
         public async Task InvokeAsync(HttpContext context)
         {
-            if (_interval <= TimeSpan.Zero
-                || !HttpMethods.IsGet(context.Request.Method)
+            if (!HttpMethods.IsGet(context.Request.Method)
                 || !context.Request.Headers.ContainsKey(McpSessionTokenMiddleware.SessionIdHeader))
             {
                 await _next(context);
@@ -60,8 +59,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             }
 
             var original = context.Response.Body;
-            using var body = new KeepAliveStream(original);
-            using var stop = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            var body = new KeepAliveStream(original);
+            using var stop = new CancellationTokenSource();
             context.Response.Body = body;
             var pump = PumpAsync(context.Response, body, stop.Token);
             try
@@ -83,8 +82,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 using var timer = new PeriodicTimer(_interval);
                 while (await timer.WaitForNextTickAsync(cancellationToken))
                 {
+                    // The SDK sets this type only once it serves the stream, so a refused GET keeps its status and body.
                     if (response.ContentType?.StartsWith("text/event-stream", StringComparison.OrdinalIgnoreCase) == true)
-                        await body.WriteCommentIfSilentAsync(_interval, cancellationToken);
+                        await body.WriteCommentAsync(cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -97,29 +97,26 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             }
         }
 
-        /// <summary>The response body with comments added: only between events, never inside one, and never as a stream's first bytes.</summary>
+        /// <summary>The response body with comments added: only between events, never inside one.</summary>
         internal sealed class KeepAliveStream : Stream
         {
             static readonly byte[] Comment = ": keep-alive\n\n"u8.ToArray();
 
             readonly Stream _inner;
             readonly SemaphoreSlim _gate = new(1, 1);
-            bool _started;
-            byte _last = (byte)'\n', _beforeLast = (byte)'\n'; // nothing written yet is a boundary too
-            long _lastActivity = Environment.TickCount64;
+            bool _betweenEvents = true;
 
             public KeepAliveStream(Stream inner) => _inner = inner;
 
-            public async Task WriteCommentIfSilentAsync(TimeSpan silence, CancellationToken cancellationToken)
+            public async Task WriteCommentAsync(CancellationToken cancellationToken)
             {
                 await _gate.WaitAsync(cancellationToken);
                 try
                 {
-                    if (!_started || _last != '\n' || _beforeLast != '\n' || Environment.TickCount64 - _lastActivity < silence.TotalMilliseconds)
+                    if (!_betweenEvents)
                         return;
                     await _inner.WriteAsync(Comment, cancellationToken);
                     await _inner.FlushAsync(cancellationToken);
-                    _lastActivity = Environment.TickCount64;
                 }
                 finally
                 {
@@ -133,7 +130,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 try
                 {
                     await _inner.WriteAsync(buffer, cancellationToken);
-                    Note(buffer.Span);
+                    if (!buffer.IsEmpty)
+                        _betweenEvents = buffer.Span.EndsWith("\n\n"u8); // an event split across writes only skips a comment
                 }
                 finally
                 {
@@ -150,22 +148,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 try
                 {
                     await _inner.FlushAsync(cancellationToken);
-                    _started = true;
                 }
                 finally
                 {
                     _gate.Release();
                 }
-            }
-
-            void Note(ReadOnlySpan<byte> written)
-            {
-                if (written.IsEmpty)
-                    return;
-                _beforeLast = written.Length > 1 ? written[^2] : _last;
-                _last = written[^1];
-                _started = true;
-                _lastActivity = Environment.TickCount64;
             }
 
             public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException("The SSE response is written asynchronously.");
@@ -178,13 +165,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
             public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
             public override void SetLength(long value) => throw new NotSupportedException();
-
-            protected override void Dispose(bool disposing)
-            {
-                if (disposing)
-                    _gate.Dispose();
-                base.Dispose(disposing);
-            }
         }
     }
 }
