@@ -115,6 +115,7 @@ CLI arguments override environment variables.
 | `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |
 | `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP. Hosted deploys behind a proxy set `any`/`0.0.0.0` |
 | `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Comma/semicolon-separated additional allowed browser Origins (added to loopback + the `--public-url` origin) |
+| `MCP_SSE_KEEPALIVE_SECONDS` | — | `30` | streamableHttp: seconds of silence before an SSE comment is sent on the standalone GET stream, so idle clients and proxies do not drop it (the TS SDK's default fetch gives up after 300 s without a byte). `0` turns it off |
 | `MCP_SENTRY_DSN` / `MCP_SENTRY_ENVIRONMENT` | — | — | Opt-in crash reporting to a Sentry-compatible endpoint (e.g. GlitchTip): unhandled exceptions only, no PII, tagged `service=mcp-server`. Unset = off |
 | `MCP_LOG_LEVEL` | — | `Info` | Log verbosity floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so unlike the rest of this table it has no CLI equivalent |
 

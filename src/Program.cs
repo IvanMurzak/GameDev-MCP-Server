@@ -259,6 +259,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 // Ahead of UseMcpPluginServer so both wrap the MCP endpoint (and its auth): log the
                 // SDK's otherwise silent 4xx answers, and turn an expired SSE resume into a 400, not a 500.
                 app.UseMiddleware<ClientErrorLoggingMiddleware>();
+                var keepAlive = SseKeepAliveMiddleware.ResolveInterval(builder.Configuration[SseKeepAliveMiddleware.IntervalEnvVar]);
+                if (keepAlive > TimeSpan.Zero)
+                    app.UseMiddleware<SseKeepAliveMiddleware>(keepAlive);
                 app.UseMiddleware<ExpiredStreamResumeMiddleware>();
                 if (sessionPersistenceEnabled)
                     app.UseMiddleware<StaleStandaloneStreamResumeMiddleware>();
