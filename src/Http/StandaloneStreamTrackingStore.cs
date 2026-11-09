@@ -35,6 +35,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         public bool HasLiveWriter(string sessionId) => _liveWriters.ContainsKey(sessionId);
 
+        /// <summary>The last event id written to the session's live stream; null without a writer or before its first event.</summary>
+        public string? LastEventId(string sessionId) => _liveWriters.TryGetValue(sessionId, out var writer) ? writer.LastEventId : null;
+
         public async ValueTask<ISseEventStreamWriter> CreateStreamAsync(SseEventStreamOptions options, CancellationToken cancellationToken = default)
         {
             var writer = await _inner.CreateStreamAsync(options, cancellationToken).ConfigureAwait(false);
@@ -54,6 +57,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             readonly ISseEventStreamWriter _inner;
             readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters;
             readonly string _sessionId;
+            volatile string? _lastEventId;
+
+            public string? LastEventId
+            {
+                get => _lastEventId;
+                private set => _lastEventId = value;
+            }
 
             public TrackedWriter(ISseEventStreamWriter inner, ConcurrentDictionary<string, TrackedWriter> liveWriters, string sessionId)
             {
@@ -65,8 +75,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             public ValueTask SetModeAsync(SseEventStreamMode mode, CancellationToken cancellationToken = default)
                 => _inner.SetModeAsync(mode, cancellationToken);
 
-            public ValueTask<SseItem<JsonRpcMessage?>> WriteEventAsync(SseItem<JsonRpcMessage?> sseItem, CancellationToken cancellationToken = default)
-                => _inner.WriteEventAsync(sseItem, cancellationToken);
+            public async ValueTask<SseItem<JsonRpcMessage?>> WriteEventAsync(SseItem<JsonRpcMessage?> sseItem, CancellationToken cancellationToken = default)
+            {
+                var written = await _inner.WriteEventAsync(sseItem, cancellationToken).ConfigureAwait(false);
+                LastEventId = written.EventId;
+                return written;
+            }
 
             public ValueTask DisposeAsync()
             {

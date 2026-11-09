@@ -63,8 +63,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Mode = SseEventStreamMode.Streaming,
         };
 
-        /// <summary>Runs the middleware; true when the request reached the next handler still carrying the header.</summary>
+        /// <summary>Runs the middleware; true when the request reached the next handler with the header unchanged.</summary>
         static async Task<bool> KeepsLastEventId(StandaloneStreamTrackingStore store, string method, string lastEventId)
+            => await ResumedEventId(store, method, lastEventId) == lastEventId;
+
+        /// <summary>Runs the middleware; the Last-Event-ID the next handler sees, null when it was removed.</summary>
+        static async Task<string?> ResumedEventId(StandaloneStreamTrackingStore store, string method, string lastEventId)
         {
             var context = new DefaultHttpContext();
             context.Request.Method = method;
@@ -79,7 +83,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await middleware.InvokeAsync(context);
 
             Assert.True(reachedNext);
-            return context.Request.Headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader);
+            return context.Request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var value)
+                ? value.ToString()
+                : null;
         }
 
         [Fact]
@@ -94,6 +100,30 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             Assert.True(await KeepsLastEventId(store, "GET", EventId(Session, Get)));
         }
+
+        [Fact]
+        public async Task IdAtOrBehindTheLiveWriter_StillResumes()
+        {
+            var store = NewStore();
+            await using var writer = await store.CreateStreamAsync(StreamOptions(Get));
+            var written = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
+
+            Assert.True(await KeepsLastEventId(store, "GET", written.EventId!));
+        }
+
+        [Fact]
+        public async Task IdFromAPreviousProcess_AheadOfTheNewWriter_MovesToItsLastEvent()
+        {
+            var store = NewStore();
+            await using var writer = await store.CreateStreamAsync(StreamOptions(Get));
+            var written = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
+
+            Assert.Equal(written.EventId, await ResumedEventId(store, "GET", EventId(Session, Get) + "000"));
+        }
+
+        [Fact]
+        public async Task NonNumericSequence_IsLeftForTheSdkToReject()
+            => Assert.True(await KeepsLastEventId(NewStore(), "GET", EventId(Session, Get) + "x"));
 
         [Fact]
         public async Task PostStream_StillResumes()
@@ -121,9 +151,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             var item = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
 
-            Assert.True(StaleStandaloneStreamResumeMiddleware.TryParseEventId(item.EventId!, out var session, out var stream));
+            Assert.True(StaleStandaloneStreamResumeMiddleware.TryParseEventId(item.EventId!, out var session, out var stream, out var sequence));
             Assert.Equal(Session, session);
             Assert.Equal(Get, stream);
+            Assert.Equal(1, sequence);
         }
 
         [Fact]
@@ -162,7 +193,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var cache = NewCache();
             var port = ServerHarness.FreePort();
 
-            var first = await RestartableServer.StartAsync(cache, port, ct);
+            await using var first = await RestartableServer.StartAsync(cache, port, ct);
             await using var client = await McpClient.CreateAsync(
                 new HttpClientTransport(new HttpClientTransportOptions
                 {
@@ -176,13 +207,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 NotificationMethods.ToolListChangedNotification,
                 (_, _) => { received.TrySetResult(); return ValueTask.CompletedTask; });
 
-            // The client must hold an event id (the priming event) before the restart.
             await first.WaitForLiveWriterAsync(client.SessionId!, ct);
             await first.DisposeAsync();
 
             await using var second = await RestartableServer.StartAsync(cache, port, ct);
             var rehydrated = await second.WaitForSessionAsync(client.SessionId!, ct);
             await second.WaitForLiveWriterAsync(client.SessionId!, ct);
+
+            // Else this was a plain GET and the middleware under test did nothing.
+            Assert.True(second.SawResume, "The client did not reconnect with a Last-Event-ID.");
 
             await rehydrated.SendNotificationAsync(NotificationMethods.ToolListChangedNotification, ct);
 
@@ -194,12 +227,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         {
             readonly WebApplication _app;
             readonly ConcurrentDictionary<string, McpServer> _sessions;
+            bool _disposed;
 
             RestartableServer(WebApplication app, ConcurrentDictionary<string, McpServer> sessions)
             {
                 _app = app;
                 _sessions = sessions;
             }
+
+            public bool SawResume { get; private set; }
 
             public static async Task<RestartableServer> StartAsync(IDistributedCache cache, int port, CancellationToken ct)
             {
@@ -225,10 +261,17 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 Program.AddStandaloneStreamTracking(builder.Services);
 
                 var app = builder.Build();
+                var server = new RestartableServer(app, sessions);
+                app.Use((context, next) =>
+                {
+                    if (context.Request.Headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader))
+                        server.SawResume = true;
+                    return next(context);
+                });
                 app.UseMiddleware<StaleStandaloneStreamResumeMiddleware>();
                 app.MapMcp();
                 await app.StartAsync(ct);
-                return new RestartableServer(app, sessions);
+                return server;
             }
 
             public async Task<McpServer> WaitForSessionAsync(string sessionId, CancellationToken ct)
@@ -248,9 +291,25 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             public async ValueTask DisposeAsync()
             {
+                if (_disposed)
+                    return;
+                _disposed = true;
                 await _app.StopAsync(CancellationToken.None);
                 await _app.DisposeAsync();
             }
+        }
+    }
+
+    [Collection(LiveServerCollection.Name)]
+    public class StandaloneStreamWiringTests
+    {
+        [Fact]
+        public async Task RealHostWithRedis_WritesThroughTheTrackingStore()
+        {
+            // Nothing listens on this port: the Redis client connects lazily and no request reaches it here.
+            await using var server = await ServerHarness.StartAsync("--REDIS_URL=127.0.0.1:1");
+
+            Assert.IsType<StandaloneStreamTrackingStore>(server.Services.GetRequiredService<ISseEventStreamStore>());
         }
     }
 }

@@ -9,6 +9,7 @@
 */
 
 using System;
+using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 using com.IvanMurzak.McpPlugin.Server.Auth;
@@ -26,12 +27,18 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// on the rehydrated session's new transport, which therefore drops every notification ("no GET SSE
     /// stream has been opened"). Worse, the client is told nothing: the old stream replays nothing and
     /// ends with a 200, or stays open and silent if the previous process was killed, and the C# client
-    /// repeats that GET every second for the life of the session.</para>
+    /// repeats that GET for the life of the session.</para>
     ///
     /// <para>So when the resumed stream is this session's standalone stream and no writer for it exists
     /// in this process, the header is removed and the SDK serves an ordinary GET, which attaches the
     /// stream. Events stored but undelivered by the previous process are not replayed. Resumes of POST
     /// streams (which carry a pending response) and of a stream this process still owns are untouched.</para>
+    ///
+    /// <para>A client can also miss the new stream's first event and retry with its old id. A new writer
+    /// restarts its sequence, so the SDK would wait silently for a sequence far ahead; such a resume is
+    /// moved to the writer's last event instead.</para>
+    ///
+    /// <para>Liveness is per process, so this assumes one server process per Redis key prefix.</para>
     /// </summary>
     public sealed class StaleStandaloneStreamResumeMiddleware
     {
@@ -55,15 +62,22 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             if (HttpMethods.IsGet(request.Method)
                 && request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
                 && request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString() is var sessionId
-                && !_streams.HasLiveWriter(sessionId)
-                && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId)
+                && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId, out var sequence)
                 && eventStreamId == StreamableHttpServerTransport.UnsolicitedMessageStreamId
                 && eventSessionId == sessionId)
             {
-                _logger.LogInformation(
-                    "Attaching a new standalone GET stream for a resume from a previous process. SessionId={SessionId}",
-                    sessionId);
-                request.Headers.Remove(ExpiredStreamResumeMiddleware.LastEventIdHeader);
+                if (!_streams.HasLiveWriter(sessionId))
+                {
+                    // Debug: this runs ahead of auth and the session lookup, so nothing is attached yet.
+                    _logger.LogDebug("Resume of a standalone GET stream from a previous process. SessionId={SessionId}", sessionId);
+                    request.Headers.Remove(ExpiredStreamResumeMiddleware.LastEventIdHeader);
+                }
+                else if (_streams.LastEventId(sessionId) is { } writerEventId
+                    && TryParseEventId(writerEventId, out _, out _, out var writerSequence)
+                    && sequence > writerSequence)
+                {
+                    request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = writerEventId;
+                }
             }
 
             return _next(context);
@@ -75,11 +89,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         /// asking the store, also covers a stream whose metadata has expired: that is what a client idle
         /// for over an hour resumes after a restart, and the store would only answer 400 for it.
         /// </summary>
-        internal static bool TryParseEventId(string eventId, out string sessionId, out string streamId)
+        internal static bool TryParseEventId(string eventId, out string sessionId, out string streamId, out long sequence)
         {
             sessionId = streamId = string.Empty;
+            sequence = 0;
             var parts = eventId.Split(':');
-            if (parts.Length != 3)
+            if (parts.Length != 3 || !long.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out sequence))
                 return false;
             try
             {
