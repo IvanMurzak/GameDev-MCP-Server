@@ -9,7 +9,6 @@
 */
 
 using System;
-using System.Collections.Generic;
 using com.IvanMurzak.GameDev.MCP.Server.Startup;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
 using com.IvanMurzak.McpPlugin.Common;
@@ -18,32 +17,32 @@ using Xunit;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 {
-    /// <summary>The startup lines end up in <c>docker logs</c>: no secret may reach them.</summary>
+    /// <summary>The startup line ends up in <c>docker logs</c>: no secret may reach it.</summary>
     [Collection(LiveServerCollection.Name)] // the env-var cases below must not race a live server's startup
     public class LaunchLogTests
     {
         const string Secret = "s3cret-value";
 
-        static string Log(string[] args)
-        {
-            var lines = new List<string>();
-            LaunchLog.Write(lines.Add, args, new DataArguments(args));
-            return string.Join("\n", lines);
-        }
-
         [Theory]
         [InlineData("--token", Secret)]
         [InlineData("--token=" + Secret)]
-        [InlineData("--webhook-token", Secret)]
-        [InlineData("--webhook-token=" + Secret)]
-        [InlineData("--REDIS_URL=redis://:" + Secret + "@redis:6379/0")]
-        public void SecretOnTheCommandLine_IsNotLogged(params string[] args)
+        [InlineData("token", Secret)] // the parser needs no dashes
+        [InlineData("--token", "-5" + Secret)] // nor does a value starting with dash-digit end the option
+        public void TokenOnTheCommandLine_IsReportedByPresenceOnly(params string[] args)
         {
-            var log = Log(args);
+            Assert.Equal(Secret, new DataArguments(args).Token?.Replace("-5", "")); // else the parser ignored it
+
+            var log = LaunchLog.Describe(new DataArguments(args));
 
             Assert.DoesNotContain(Secret, log);
-            Assert.Contains("Launch arguments:", log); // else nothing was looked at
+            Assert.Contains("\"tokenSet\": true", log, StringComparison.OrdinalIgnoreCase);
         }
+
+        [Theory]
+        [InlineData("--webhook-token", Secret)]
+        [InlineData("--webhook-tool-url=https://hooks.example/" + Secret)]
+        public void WebhookSecrets_AreNotLogged(params string[] args)
+            => Assert.DoesNotContain(Secret, LaunchLog.Describe(new DataArguments(args)));
 
         [Theory]
         [InlineData(Consts.MCP.Server.Env.Token)]
@@ -54,10 +53,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Environment.SetEnvironmentVariable(variable, Secret);
             try
             {
-                var log = Log(Array.Empty<string>());
+                var arguments = new DataArguments(Array.Empty<string>());
+                Assert.True(arguments.Token == Secret || arguments.WebhookToken == Secret); // else nothing was read
 
-                Assert.DoesNotContain(Secret, log);
-                Assert.Contains("***", log); // the variable was read and masked, not just absent
+                Assert.DoesNotContain(Secret, LaunchLog.Describe(arguments));
             }
             finally
             {
@@ -66,18 +65,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         }
 
         [Fact]
-        public void OrdinaryOptions_StayReadable()
+        public void WithoutTokens_PresenceIsFalse_AndOrdinaryOptionsStayReadable()
         {
-            var log = Log(new[] { "--port", "6123", "--auth=none", "--token", Secret });
+            var log = LaunchLog.Describe(new DataArguments(new[] { "--port", "6123", "--bind", "any" }));
 
-            Assert.Contains("--port 6123", log);
-            Assert.Contains("--auth=none", log);
-            Assert.Contains("--token ***", log);
-            Assert.Contains("6123", LaunchLog.RedactParsed(new DataArguments(new[] { "--port", "6123" })));
+            Assert.Contains("6123", log);
+            Assert.Contains("any", log);
+            Assert.Contains("\"tokenSet\": false", log, StringComparison.OrdinalIgnoreCase);
         }
-
-        [Fact]
-        public void SecretOption_WithoutAValue_DoesNotSwallowTheNextOption()
-            => Assert.Equal(new[] { "--token", "--port", "6123" }, LaunchLog.RedactArguments(new[] { "--token", "--port", "6123" }));
     }
 }
