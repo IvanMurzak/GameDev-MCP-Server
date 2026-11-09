@@ -19,7 +19,9 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
+using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -47,6 +49,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
     public class SessionOwnershipTests
     {
         const string Id = "session-1";
+        const string Protocol = "2025-11-25";
+        const string AnonymousKey = "mcp:session:" + Id;
 
         static IDistributedCache NewCache() => new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
 
@@ -54,7 +58,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
         static InitializeRequestParams Init() => new()
         {
-            ProtocolVersion = "2025-11-25",
+            ProtocolVersion = Protocol,
             Capabilities = new ClientCapabilities(),
             ClientInfo = new Implementation { Name = "owner-client", Version = "1.0.0" },
         };
@@ -77,7 +81,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var rehydrated = await Roundtrip(As(Sub("alice")), As(Sub("alice")));
 
             Assert.Equal("owner-client", rehydrated?.ClientInfo?.Name);
-            Assert.Equal("2025-11-25", rehydrated?.ProtocolVersion);
+            Assert.Equal(Protocol, rehydrated?.ProtocolVersion);
         }
 
         [Fact]
@@ -111,24 +115,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 SessionMigrationHandler.HashOwner(As(new Claim("sub", "a", ClaimValueTypes.String, "b\u001fas")).User));
 
         [Fact]
-        public async Task RecordHoldsNoReadableIdentity()
+        public async Task KeyHoldsNoReadableIdentity()
         {
+            var alice = As(Sub("alice@example.com")).User;
             var cache = NewCache();
-            await Handler(cache).OnSessionInitializedAsync(As(Sub("alice@example.com")), Id, Init(), CancellationToken.None);
+            await Handler(cache).OnSessionInitializedAsync(new DefaultHttpContext { User = alice }, Id, Init(), CancellationToken.None);
+            var key = SessionMigrationHandler.BuildKey(Id, alice);
 
-            var stored = Encoding.UTF8.GetString((await cache.GetAsync("mcp:session:" + Id))!);
-
-            Assert.DoesNotContain("alice", stored);
-            Assert.Contains("owner-client", stored); // else this looked at the wrong bytes
+            Assert.DoesNotContain("alice", key);
+            Assert.NotNull(await cache.GetAsync(key)); // else this looked at the wrong key
+            Assert.Null(await cache.GetAsync(AnonymousKey));
         }
 
-        [Theory]
-        [InlineData("{\"owner\":42,\"init\":{\"protocolVersion\":\"2025-11-25\"}}")]
-        [InlineData("not json")]
-        public async Task DamagedRecord_IsRefused(string stored)
+        [Fact]
+        public async Task DamagedRecord_IsRefused()
         {
             var cache = NewCache();
-            await cache.SetAsync("mcp:session:" + Id, Encoding.UTF8.GetBytes(stored), new DistributedCacheEntryOptions());
+            await cache.SetAsync(AnonymousKey, Encoding.UTF8.GetBytes("not json"), new DistributedCacheEntryOptions());
 
             Assert.Null(await Handler(cache).AllowSessionMigrationAsync(As(), Id, CancellationToken.None));
         }
@@ -137,7 +140,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         static async Task<IDistributedCache> CacheWithLegacyRecord()
         {
             var cache = NewCache();
-            await cache.SetAsync("mcp:session:" + Id, JsonSerializer.SerializeToUtf8Bytes(Init(), McpJsonUtilities.DefaultOptions), new DistributedCacheEntryOptions());
+            await cache.SetAsync(AnonymousKey, JsonSerializer.SerializeToUtf8Bytes(Init(), McpJsonUtilities.DefaultOptions), new DistributedCacheEntryOptions());
             return cache;
         }
 
@@ -167,7 +170,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await using (var first = await AuthedServer.StartAsync(cache, port, ct))
             {
                 var init = await Post(http, "alice", null, new { jsonrpc = "2.0", id = 1, method = "initialize", @params = new { protocolVersion = Protocol, capabilities = new { }, clientInfo = new { name = "c", version = "1" } } }, ct);
-                sessionId = init.Headers.GetValues("Mcp-Session-Id").Single();
+                sessionId = init.Headers.GetValues(McpSessionTokenMiddleware.SessionIdHeader).Single();
                 await Post(http, "alice", sessionId, new { jsonrpc = "2.0", method = "notifications/initialized" }, ct);
 
                 var call = await Post(http, "alice", sessionId, new { jsonrpc = "2.0", id = 2, method = "tools/call", @params = new { name = "secret", arguments = new { } } }, ct);
@@ -183,12 +186,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             Assert.Equal(HttpStatusCode.NotFound, (await Post(http, "mallory", sessionId, ToolsList, ct)).StatusCode);
 
-            using var replay = new HttpRequestMessage(HttpMethod.Get, "");
+            using var replay = NewRequest(HttpMethod.Get, "mallory", sessionId);
             replay.Headers.Accept.ParseAdd("text/event-stream");
-            replay.Headers.Add("Mcp-Session-Id", sessionId);
-            replay.Headers.Add("Mcp-Protocol-Version", Protocol);
-            replay.Headers.Add("Last-Event-ID", resultEventId.Substring(0, resultEventId.LastIndexOf(':') + 1) + "0");
-            replay.Headers.Add(AuthedServer.UserHeader, "mallory");
+            replay.Headers.Add(ExpiredStreamResumeMiddleware.LastEventIdHeader, resultEventId.Substring(0, resultEventId.LastIndexOf(':') + 1) + "0");
             var replayed = await http.SendAsync(replay, HttpCompletionOption.ResponseHeadersRead, ct);
             Assert.Equal(HttpStatusCode.NotFound, replayed.StatusCode);
             Assert.DoesNotContain(AuthedServer.Secret, await replayed.Content.ReadAsStringAsync(ct));
@@ -198,21 +198,24 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal(HttpStatusCode.Forbidden, (await Post(http, "mallory", sessionId, ToolsList, ct)).StatusCode);
         }
 
-        const string Protocol = "2025-11-25";
         static readonly object ToolsList = new { jsonrpc = "2.0", id = 3, method = "tools/list", @params = new { } };
 
-        static Task<HttpResponseMessage> Post(HttpClient http, string user, string? sessionId, object body, CancellationToken ct)
+        static HttpRequestMessage NewRequest(HttpMethod method, string user, string? sessionId)
         {
-            var request = new HttpRequestMessage(HttpMethod.Post, "")
-            {
-                Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json"),
-            };
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+            var request = new HttpRequestMessage(method, "");
             request.Headers.Add(AuthedServer.UserHeader, user);
             request.Headers.Add("Mcp-Protocol-Version", Protocol);
             if (sessionId != null)
-                request.Headers.Add("Mcp-Session-Id", sessionId);
+                request.Headers.Add(McpSessionTokenMiddleware.SessionIdHeader, sessionId);
+            return request;
+        }
+
+        static Task<HttpResponseMessage> Post(HttpClient http, string user, string? sessionId, object body, CancellationToken ct)
+        {
+            var request = NewRequest(HttpMethod.Post, user, sessionId);
+            request.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
             return http.SendAsync(request, ct);
         }
 
@@ -230,7 +233,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 builder.Services.AddSingleton(cache);
                 builder.Services.AddAuthentication("test").AddScheme<AuthenticationSchemeOptions, HeaderAuth>("test", null);
                 builder.Services.AddAuthorization();
-                builder.Services.AddSingleton<ISessionMigrationHandler>(_ => new SessionMigrationHandler(cache, NullLogger<SessionMigrationHandler>.Instance));
+                builder.Services.AddSingleton<ISessionMigrationHandler>(Handler(cache));
                 builder.Services
                     .AddMcpServer()
                     .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateful)

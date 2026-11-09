@@ -14,9 +14,7 @@ using System.Globalization;
 using System.Linq;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,16 +32,18 @@ namespace com.IvanMurzak.GameDev.MCP.Server
     /// <see cref="IDistributedCache"/> so a fresh server process can rehydrate a session
     /// whose ID it has never seen in memory. Closes the "lose session on restart" gap.
     /// See https://github.com/IvanMurzak/AI-Game-Dev-Server/issues/70 (Option B).
-    /// Final Redis key is <c>{InstanceName}{KeyPrefix}{sessionId}</c>, e.g.
-    /// <c>mcp-server:mcp:session:&lt;sessionId&gt;</c>.
+    /// Final Redis key is <c>{InstanceName}{KeyPrefix}{ownerHash}:{sessionId}</c>, e.g.
+    /// <c>mcp-server:mcp:session:&lt;ownerHash&gt;:&lt;sessionId&gt;</c>; without authentication there is no
+    /// owner and the key is <c>{InstanceName}{KeyPrefix}{sessionId}</c>.
     ///
     /// <para><b>A record belongs to the user who created the session.</b> The SDK checks a session's owner only
     /// against what it holds in memory: for a session it does not hold (after a restart, or once the idle
     /// timeout evicted it) it makes the CALLER the owner of whatever this handler rehydrates. So this handler
     /// is the only thing between an authenticated user who knows another user's session id and that session,
-    /// its stored SSE events (<c>Last-Event-ID</c> replay returns the tool results) and its DELETE. The record
-    /// therefore carries a hash of the owner's identity, and a caller with a different identity gets the same
-    /// "no such session" as for an unknown id.</para>
+    /// its stored SSE events (<c>Last-Event-ID</c> replay returns the tool results) and its DELETE. The key
+    /// therefore includes a hash of the owner's identity: for anyone else the record does not exist, the same
+    /// "no such session" as for an unknown id. A record from before owners were recorded sits under the
+    /// ownerless key, so only an anonymous caller (auth=none) still finds it.</para>
     /// </summary>
     public sealed class SessionMigrationHandler : ISessionMigrationHandler
     {
@@ -67,10 +67,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         public const string IdleTimeoutEnvVar = "MCP_PLUGIN_IDLE_TIMEOUT_SECONDS";
 
         private const string KeyPrefix = "mcp:session:";
-
-        // Record envelope. A record without InitProperty was written before records carried an owner.
-        private const string OwnerProperty = "owner";
-        private const string InitProperty = "init";
 
         // Defence-in-depth: validate Mcp-Session-Id format ourselves before using it as
         // a Redis key suffix, instead of trusting the upstream MCP SDK alone (issue #72).
@@ -213,13 +209,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
             try
             {
-                var payload = JsonSerializer.SerializeToUtf8Bytes(new JsonObject
-                {
-                    [OwnerProperty] = HashOwner(context.User),
-                    [InitProperty] = JsonSerializer.SerializeToNode(initializeParams, McpJsonUtilities.DefaultOptions),
-                });
+                var payload = JsonSerializer.SerializeToUtf8Bytes(
+                    initializeParams,
+                    McpJsonUtilities.DefaultOptions);
 
-                await _cache.SetAsync(BuildKey(sessionId), payload, _cacheEntryOptions, cancellationToken)
+                await _cache.SetAsync(BuildKey(sessionId, context.User), payload, _cacheEntryOptions, cancellationToken)
                     .ConfigureAwait(false);
 
                 _logger.LogDebug(
@@ -263,7 +257,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 // Read the persisted init params. The TTL is absolute (see ctor) — this read
                 // does NOT extend it, and intentionally so: the record is sized to outlive the
                 // longest expected session, so there is no window to refresh here.
-                payload = await _cache.GetAsync(BuildKey(sessionId), cancellationToken)
+                payload = await _cache.GetAsync(BuildKey(sessionId, context.User), cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -290,24 +284,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server
 
             try
             {
-                var record = JsonNode.Parse(payload);
-                var init = record?[InitProperty];
-                // A record from before owners were recorded is usable only where no identity exists at all
-                // (auth=none). With authentication on, nobody can prove it is theirs: the client starts anew.
-                var isOwner = init != null
-                    ? OwnerMatches(record![OwnerProperty]?.GetValue<string>(), context.User)
-                    : HashOwner(context.User) == null;
-                if (!isOwner)
-                {
-                    _logger.LogWarning(
-                        "Refusing MCP session migration: the caller is not the user who created the session. SessionId={SessionId}",
-                        sessionId);
-                    return null;
-                }
-
-                var initializeParams = init != null
-                    ? init.Deserialize<InitializeRequestParams>(McpJsonUtilities.DefaultOptions)
-                    : JsonSerializer.Deserialize<InitializeRequestParams>(payload, McpJsonUtilities.DefaultOptions);
+                var initializeParams = JsonSerializer.Deserialize<InitializeRequestParams>(
+                    payload,
+                    McpJsonUtilities.DefaultOptions);
                 if (initializeParams == null)
                 {
                     _logger.LogWarning(
@@ -321,9 +300,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                     sessionId);
                 return initializeParams;
             }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            catch (JsonException ex)
             {
-                // InvalidOperationException: well-formed JSON whose owner is not a string.
                 _logger.LogWarning(ex,
                     "Failed to deserialise persisted MCP init params; rejecting migration. SessionId={SessionId}",
                     sessionId);
@@ -331,13 +309,17 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             }
         }
 
+        // The session id pattern excludes ':', so no id can reach another owner's key.
+        internal static string BuildKey(string sessionId, ClaimsPrincipal? owner)
+            => HashOwner(owner) is { } hash ? $"{KeyPrefix}{hash}:{sessionId}" : KeyPrefix + sessionId;
+
         /// <summary>
         /// A hash of the identity the SDK binds a session to, null for an anonymous caller. Same rule as the
         /// SDK's internal session identity (<c>StreamableHttpHandler.GetSessionIdentity</c>): across all
         /// authenticated identities the first NameIdentifier, else <c>sub</c>, else UPN, compared by type,
         /// value and issuer. So a refreshed token of the same user still matches. An authenticated caller
-        /// with none of those claims never gets here: the SDK refuses it with 403 first; it hashes to a
-        /// constant here only so that it can never equal a real owner.
+        /// with none of those claims never gets here (the SDK refuses it with 403 first); it gets a constant
+        /// that is no hash, so it can never equal a real owner.
         /// </summary>
         internal static string? HashOwner(ClaimsPrincipal? user)
         {
@@ -348,25 +330,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             var claim = FindClaim(identities, ClaimTypes.NameIdentifier)
                 ?? FindClaim(identities, "sub")
                 ?? FindClaim(identities, ClaimTypes.Upn);
+            if (string.IsNullOrEmpty(claim?.Value))
+                return "unidentified";
+
             // JSON keeps the fields apart: no value can shift bytes from one field into another.
-            var identity = claim == null || string.IsNullOrEmpty(claim.Value)
-                ? JsonSerializer.SerializeToUtf8Bytes(Array.Empty<string>())
-                : JsonSerializer.SerializeToUtf8Bytes(new[] { claim.Type, claim.Value, claim.Issuer });
-            return Convert.ToHexString(SHA256.HashData(identity));
+            return Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(new[] { claim.Type, claim.Value, claim.Issuer })));
         }
 
         private static Claim? FindClaim(ClaimsIdentity[] identities, string type)
             => identities.Select(i => i.FindFirst(type)).FirstOrDefault(static c => c != null);
-
-        private static bool OwnerMatches(string? recordedOwner, ClaimsPrincipal? user)
-        {
-            var caller = HashOwner(user);
-            if (recordedOwner == null || caller == null)
-                return recordedOwner == caller;
-            return CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(recordedOwner), Encoding.UTF8.GetBytes(caller));
-        }
-
-        private static string BuildKey(string sessionId)
-            => KeyPrefix + sessionId;
     }
 }
