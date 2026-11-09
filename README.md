@@ -110,9 +110,12 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_TOOL_TIMEOUT` | `--tool-timeout` | `300000` (or `--plugin-timeout` if larger) | How long one tool call may run in the plugin (ms). A tool call is sent to the plugin once and never re-sent; on timeout or a dropped connection it fails, and the tool may still be running in the editor. Raise it for long editor operations (builds, imports). Servers after 9.2.12 only (built on McpPlugin 8.11.0) |
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client → Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (this host seeds 8h instead of the package default of 600s, so a local session survives a working day). Multi-tenant hosts should lower it and use a Redis session-migration record for long-window resumption |
-| `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none` or `oauth` |
+| `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none`, `token` or `oauth` |
+| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode. Required for it, unread otherwise |
 | `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL (e.g. `https://ai-game.dev`). Required for `oauth` |
 | `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |
+| `REDIS_URL` | — | — | streamableHttp: stores sessions and their SSE events in Redis, so a session survives a server restart. Unset: a restart loses every session (see [Sessions and restarts](#sessions-and-restarts)) |
+| `MCP_REDIS_KEY_PREFIX` | — | `mcp-server:` | Key namespace when several servers share one Redis |
 | `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP. Hosted deploys behind a proxy set `any`/`0.0.0.0` |
 | `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Comma/semicolon-separated additional allowed browser Origins (added to loopback + the `--public-url` origin) |
 | `MCP_SSE_KEEPALIVE_SECONDS` | — | `30` | streamableHttp: seconds of silence before an SSE comment is sent on the standalone GET stream, so idle clients and proxies do not drop it (the TS SDK's default fetch gives up after 300 s without a byte). `0` turns it off |
@@ -129,15 +132,17 @@ history. Lower verbosity keeps *more* usable history, not less.
 
 ## Authentication
 
-The server is an OAuth 2.1 **resource server**. Two modes:
+The server is an OAuth 2.1 **resource server**, with an offline shared-secret mode beside it. Three modes:
 
 | Mode | Auth | Default for | Use |
 | --- | --- | --- | --- |
 | `none` | none — single-instance, zero-config | **stdio** | offline / local dev / CI |
+| `token` | one shared bearer secret (`MCP_PLUGIN_TOKEN`), compared in constant time; `401` without it | explicit `--auth token` only | self-hosted, one project, no authorization server |
 | `oauth` | ES256 JWT validated locally via cached JWKS (with PAT introspection fallback); `401` + `resource_metadata` challenge | **streamableHttp** | signed-in localhost **and** hosted |
 
 - **Transport-conditional default:** `stdio` defaults to `none`. `streamableHttp` defaults to `oauth` **when both `--auth-issuer` and `--public-url` are configured**; otherwise it stays on `none` and logs a warning (so the zero-config `docker run` / `--port 8080` quickstart still works). An explicit `--auth` always wins.
 - **`oauth` requires** `--auth-issuer` (the authorization server, e.g. `https://ai-game.dev`) **and** `--public-url` (this server's canonical audience). Startup fails fast if either is missing while `--auth oauth` is set.
+- **`token` mode** applies to AI clients and to the engine plugin alike: both must send the secret. In Godot-MCP that means `GODOT_MCP_TOKEN` (see its README); a plugin that sends none is disconnected, and `tools/list` then answers only with the server's own tools. The secret crosses cleartext HTTP unless TLS terminates in front of the server.
 - **Origin validation** (DNS-rebinding defense) runs in **all** modes: a request with a non-allowed `Origin` gets `403`. Loopback and the `--public-url` origin are allowed by default; add more with `MCP_ALLOWED_ORIGINS`.
 - **Bind** defaults to loopback. Set `--bind any` (or `0.0.0.0`) for a hosted deployment a reverse proxy must reach.
 
@@ -149,7 +154,25 @@ gamedev-mcp-server --client-transport stdio --port 8080
 gamedev-mcp-server --client-transport streamableHttp --port 8080 \
   --auth oauth --auth-issuer https://ai-game.dev --public-url https://ai-game.dev/mcp \
   --bind 0.0.0.0
+
+# Self-hosted with one shared secret, in a container:
+docker run -p 8080:8080 -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_PLUGIN_PORT=8080 -e MCP_BIND=any \
+  -e MCP_AUTH=token -e MCP_PLUGIN_TOKEN=<secret> aigamedeveloper/mcp-server
 ```
+
+## Sessions and restarts
+
+An MCP session lives in the server process. What a streamableHttp client sees when that process restarts depends on `REDIS_URL`:
+
+| | With `REDIS_URL` | Without |
+| --- | --- | --- |
+| The session | Survives: the same session id keeps working for the user who created it | **Lost** |
+| The client's next request | Works | `404` with JSON-RPC error `-32001` (`Session not found`) |
+| What the client must do | Nothing | Start a new session with `initialize` |
+
+Without a store there is nothing a restarted server could restore: it no longer knows the session or the client's protocol version, so the `404` is the correct signal, and the MCP specification tells the client to re-initialize on it. The C# (`ModelContextProtocol` 2.4.0) and TypeScript (1.32.2) SDK clients report the error and leave re-initializing to the application, so an application that does not handle it stays failed until it reconnects. Configure Redis when clients must survive a server update.
+
+A persisted session belongs to its creator: a different authenticated user presenting its id gets the same `404`.
 
 ## Configure an AI agent
 
