@@ -1,0 +1,8 @@
+<Project>
+  <!-- TEMPORARY pre-release McpPlugin feed for every project in this repo (the host, its tests, the Docker build);
+       see "TEMPORARY PRE-RELEASE PINS" in com.IvanMurzak.GameDev.MCP.Server.csproj.
+       Delete this file and prerelease-packages/ when the pins return to a published version. -->
+  <PropertyGroup>
+    <RestoreAdditionalProjectSources>$(RestoreAdditionalProjectSources);$(MSBuildThisFileDirectory)prerelease-packages</RestoreAdditionalProjectSources>
+  </PropertyGroup>
+</Project>
