@@ -169,6 +169,7 @@ An MCP session lives in the server process. What a streamableHttp client sees wh
 | The session | Survives for the migration-record lifetime (`MCP_SESSION_MIGRATION_TTL_SECONDS`, default the idle window, 8 h from `initialize`): the same session id keeps working for the user who created it | **Lost** |
 | The client's next request | Works | `404` with JSON-RPC error `-32001` (`Session not found`) |
 | What the client must do | Nothing, within that lifetime; past it, or while Redis is unreachable, as in the other column | Start a new session with `initialize` |
+| The catalogue | The first standalone GET stream of the rehydrated session gets one `list_changed` per capability that declares it, because changes made meanwhile reached no one: list again | A new session lists it anyway |
 
 Without a store there is nothing a restarted server could restore: it no longer knows the session or the client's protocol version, so the `404` is the correct signal, and the MCP specification tells the client to re-initialize on it. The C# (`ModelContextProtocol` 2.4.0) and TypeScript (1.32.2) SDK clients report the error and leave re-initializing to the application, so an application that does not handle it stays failed until it reconnects. Configure Redis when clients must survive a server update.
 
