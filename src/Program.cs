@@ -217,7 +217,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                         sp.GetRequiredService<IDistributedCache>(),
                         sp.GetRequiredService<ILogger<SessionMigrationHandler>>(),
                         sessionMigrationTtl));
+                #pragma warning disable MCP9006 // Stateful by design (session migration, list_changed; McpPlugin needs a session): SEP-2567 back-compat API.
                 mcpServerBuilder.WithDistributedCacheEventStreamStore(ConfigureEventStreamStore);
+                #pragma warning restore MCP9006
                 AddStandaloneStreamTracking(builder.Services);
             }
 
@@ -321,6 +323,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             return app;
         }
 
+        #pragma warning disable MCP9006 // Stateful by design (session migration, list_changed; McpPlugin needs a session): SEP-2567 back-compat API.
         /// <summary>
         /// Drops the SDK's 4h absolute cap on SSE stream metadata: a client resumes its one GET stream
         /// for the whole session, so a live session outlived its record and every resume failed. Reads
@@ -330,13 +333,16 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         {
             options.MetadataAbsoluteExpiration = null;
         }
+        #pragma warning restore MCP9006
 
         /// <summary>Wraps the distributed-cache event store so the SDK writes through the tracking store (the last registration wins).</summary>
         internal static void AddStandaloneStreamTracking(IServiceCollection services)
         {
             services.AddSingleton<DistributedCacheEventStreamStore>();
             services.AddSingleton(sp => new StandaloneStreamTrackingStore(sp.GetRequiredService<DistributedCacheEventStreamStore>()));
+            #pragma warning disable MCP9006 // Stateful by design (session migration, list_changed; McpPlugin needs a session): SEP-2567 back-compat API.
             services.AddSingleton<ISseEventStreamStore>(sp => sp.GetRequiredService<StandaloneStreamTrackingStore>());
+            #pragma warning restore MCP9006
         }
 
         /// <summary>

@@ -183,8 +183,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public void EventStreamStore_DropsOnlyTheMetadataAbsoluteCap()
         {
+            #pragma warning disable MCP9006 // Stateful by design (session migration, list_changed; McpPlugin needs a session): SEP-2567 back-compat API.
             var options = new DistributedCacheEventStreamStoreOptions();
             var defaults = new DistributedCacheEventStreamStoreOptions();
+            #pragma warning restore MCP9006
 
             Program.ConfigureEventStreamStore(options);
 
