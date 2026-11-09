@@ -15,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Http
 {
@@ -25,6 +26,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// event store its reconnect then gets a 400 for good, so the client stops hearing <c>list_changed</c>.
     ///
     /// <para>A comment is not an event: SSE parsers skip it, and it adds nothing to the event store.</para>
+    ///
+    /// <para>The timer never touches the <see cref="HttpResponse"/>, which is not thread-safe: whether this is an
+    /// event stream is decided on the SDK's own thread, when the SDK first writes or flushes. So a comment can
+    /// neither race the SDK setting its headers nor commit a response the SDK might still refuse with an error.
+    /// A resume with nothing to replay has written nothing yet, and stays without comments until its first event.</para>
     /// </summary>
     public sealed class SseKeepAliveMiddleware
     {
@@ -36,10 +42,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         readonly RequestDelegate _next;
         readonly TimeSpan _interval;
+        readonly ILogger<SseKeepAliveMiddleware> _logger;
 
-        public SseKeepAliveMiddleware(RequestDelegate next, TimeSpan interval)
+        public SseKeepAliveMiddleware(RequestDelegate next, ILogger<SseKeepAliveMiddleware> logger, TimeSpan interval)
         {
             _next = next;
+            _logger = logger;
             _interval = interval;
         }
 
@@ -59,32 +67,31 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             }
 
             var original = context.Response.Body;
-            var body = new KeepAliveStream(original);
+            var response = context.Response;
+            var body = new KeepAliveStream(original, () => response.ContentType?.StartsWith("text/event-stream", StringComparison.OrdinalIgnoreCase) == true);
             using var stop = new CancellationTokenSource();
             context.Response.Body = body;
-            var pump = PumpAsync(context.Response, body, stop.Token);
+            var pump = PumpAsync(body, stop.Token);
             try
             {
                 await _next(context);
             }
             finally
             {
+                context.Response.Body = original;
                 stop.Cancel();
                 await pump;
-                context.Response.Body = original;
             }
         }
 
-        async Task PumpAsync(HttpResponse response, KeepAliveStream body, CancellationToken cancellationToken)
+        async Task PumpAsync(KeepAliveStream body, CancellationToken cancellationToken)
         {
             try
             {
                 using var timer = new PeriodicTimer(_interval);
                 while (await timer.WaitForNextTickAsync(cancellationToken))
                 {
-                    // The SDK sets this type only once it serves the stream, so a refused GET keeps its status and body.
-                    if (response.ContentType?.StartsWith("text/event-stream", StringComparison.OrdinalIgnoreCase) == true)
-                        await body.WriteCommentAsync(cancellationToken);
+                    await body.WriteCommentAsync(cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -95,6 +102,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             {
                 // The client is gone: the SDK's own request-aborted path ends the stream.
             }
+            catch (Exception ex)
+            {
+                // Awaited in a finally: anything escaping would replace the request's real outcome.
+                _logger.LogWarning(ex, "SSE keep-alive stopped for this stream.");
+            }
         }
 
         /// <summary>The response body with comments added: only between events, never inside one.</summary>
@@ -103,17 +115,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             static readonly byte[] Comment = ": keep-alive\n\n"u8.ToArray();
 
             readonly Stream _inner;
+            readonly Func<bool> _isEventStream;
             readonly SemaphoreSlim _gate = new(1, 1);
+            bool _eventStreamStarted;
             bool _betweenEvents = true;
 
-            public KeepAliveStream(Stream inner) => _inner = inner;
+            public KeepAliveStream(Stream inner, Func<bool> isEventStream)
+            {
+                _inner = inner;
+                _isEventStream = isEventStream;
+            }
 
             public async Task WriteCommentAsync(CancellationToken cancellationToken)
             {
                 await _gate.WaitAsync(cancellationToken);
                 try
                 {
-                    if (!_betweenEvents)
+                    if (!_eventStreamStarted || !_betweenEvents)
                         return;
                     await _inner.WriteAsync(Comment, cancellationToken);
                     await _inner.FlushAsync(cancellationToken);
@@ -129,6 +147,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 await _gate.WaitAsync(cancellationToken);
                 try
                 {
+                    _eventStreamStarted = _eventStreamStarted || _isEventStream(); // on the SDK's thread, see the class comment
                     await _inner.WriteAsync(buffer, cancellationToken);
                     if (!buffer.IsEmpty)
                         _betweenEvents = buffer.Span.EndsWith("\n\n"u8); // an event split across writes only skips a comment
@@ -147,6 +166,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 await _gate.WaitAsync(cancellationToken);
                 try
                 {
+                    _eventStreamStarted = _eventStreamStarted || _isEventStream();
                     await _inner.FlushAsync(cancellationToken);
                 }
                 finally

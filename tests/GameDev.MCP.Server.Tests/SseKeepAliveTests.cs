@@ -38,21 +38,46 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
     /// <summary>A silent standalone stream must carry bytes, or clients and proxies take it for dead.</summary>
     public class SseKeepAliveTests
     {
+        static SseKeepAliveMiddleware.KeepAliveStream EventStream(Stream inner) => new(inner, () => true);
+
         static string Text(MemoryStream stream) => Encoding.UTF8.GetString(stream.ToArray());
 
         static async Task WriteAsync(Stream stream, string text) => await stream.WriteAsync(Encoding.UTF8.GetBytes(text));
 
         [Fact]
-        public async Task Comment_OnANewStream_AndBetweenEvents()
+        public async Task Comment_AfterTheStreamStartedWithAFlush_AndBetweenEvents()
         {
             var inner = new MemoryStream();
-            var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
+            var stream = EventStream(inner);
 
+            await stream.FlushAsync(); // what the SDK does without an event store: headers out, no event yet
             await stream.WriteCommentAsync(default);
             await WriteAsync(stream, "data: {}\n\n");
             await stream.WriteCommentAsync(default);
 
             Assert.Equal(": keep-alive\n\ndata: {}\n\n: keep-alive\n\n", Text(inner));
+        }
+
+        [Fact]
+        public async Task NoComment_BeforeTheSdkWroteOrFlushed()
+        {
+            var inner = new MemoryStream();
+
+            await EventStream(inner).WriteCommentAsync(default);
+
+            Assert.Empty(Text(inner));
+        }
+
+        [Fact]
+        public async Task NoComment_OnAResponseThatIsNoEventStream()
+        {
+            var inner = new MemoryStream();
+            var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner, () => false);
+            await WriteAsync(stream, "{}\n\n");
+
+            await stream.WriteCommentAsync(default);
+
+            Assert.Equal("{}\n\n", Text(inner));
         }
 
         [Theory]
@@ -61,7 +86,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         public async Task NoComment_InsideAnEvent(string partial)
         {
             var inner = new MemoryStream();
-            var stream = new SseKeepAliveMiddleware.KeepAliveStream(inner);
+            var stream = EventStream(inner);
             await WriteAsync(stream, partial);
 
             await stream.WriteCommentAsync(default);
@@ -105,6 +130,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 });
             await using var app = builder.Build();
             app.UseMiddleware<SseKeepAliveMiddleware>(TimeSpan.FromMilliseconds(100));
+            // A handler slower than the interval: a refused GET must still be able to choose its status.
+            app.Use(async (context, next) =>
+            {
+                if (context.Request.Headers[McpSessionTokenMiddleware.SessionIdHeader] == "no-such-session")
+                    await Task.Delay(500, context.RequestAborted);
+                await next(context);
+            });
             app.MapMcp();
             await app.StartAsync(ct);
 
