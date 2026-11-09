@@ -5,9 +5,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy main project file, plus the temporary pre-release McpPlugin feed the restore reads (Directory.Build.props)
-COPY ["com.IvanMurzak.GameDev.MCP.Server.csproj", "Directory.Build.props", "."]
-COPY ["prerelease-packages/", "prerelease-packages/"]
+# Copy main project file
+COPY ["com.IvanMurzak.GameDev.MCP.Server.csproj", "."]
 
 # Restore dependencies
 RUN dotnet restore "com.IvanMurzak.GameDev.MCP.Server.csproj"
