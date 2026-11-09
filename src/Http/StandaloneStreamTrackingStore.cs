@@ -38,6 +38,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         /// <summary>The last event id written to the session's live stream; null without a writer or before its first event.</summary>
         public string? LastEventId(string sessionId) => _liveWriters.TryGetValue(sessionId, out var writer) ? writer.LastEventId : null;
 
+        /// <summary>The first event id written to the session's live stream (its priming event); null without a writer or before its first event.</summary>
+        public string? FirstEventId(string sessionId) => _liveWriters.TryGetValue(sessionId, out var writer) ? writer.FirstEventId : null;
+
         public async ValueTask<ISseEventStreamWriter> CreateStreamAsync(SseEventStreamOptions options, CancellationToken cancellationToken = default)
         {
             var writer = await _inner.CreateStreamAsync(options, cancellationToken).ConfigureAwait(false);
@@ -57,7 +60,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             readonly ISseEventStreamWriter _inner;
             readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters;
             readonly string _sessionId;
+            volatile string? _firstEventId;
             volatile string? _lastEventId;
+
+            public string? FirstEventId => _firstEventId;
 
             public string? LastEventId
             {
@@ -78,6 +84,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             public async ValueTask<SseItem<JsonRpcMessage?>> WriteEventAsync(SseItem<JsonRpcMessage?> sseItem, CancellationToken cancellationToken = default)
             {
                 var written = await _inner.WriteEventAsync(sseItem, cancellationToken).ConfigureAwait(false);
+                _firstEventId ??= written.EventId;
                 LastEventId = written.EventId;
                 return written;
             }

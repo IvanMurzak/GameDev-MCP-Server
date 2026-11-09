@@ -9,12 +9,16 @@
 */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Http
@@ -36,7 +40,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     ///
     /// <para>A client can also miss the new stream's first event and retry with its old id. A new writer
     /// restarts its sequence, so the SDK would wait silently for a sequence far ahead; such a resume is
-    /// moved to the writer's last event instead.</para>
+    /// moved to the writer's first event instead, so it gets what the new stream sent. An old id within the
+    /// writer's sequence cannot be told from one of its own, and resumes from there.</para>
+    ///
+    /// <para>A rehydrated session had no subscriber while it was not in memory, so a catalogue change in
+    /// that time is lost for good. So the standalone stream of a session rehydrated in this process gets
+    /// one <c>list_changed</c> per capability that declares it, and the client lists again.</para>
     ///
     /// <para>Liveness is per process, so this assumes one server process per Redis key prefix.</para>
     /// </summary>
@@ -59,8 +68,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         public Task InvokeAsync(HttpContext context)
         {
             var request = context.Request;
-            if (HttpMethods.IsGet(request.Method)
-                && request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
+            if (!HttpMethods.IsGet(request.Method))
+                return _next(context);
+
+            context.Response.OnStarting(AnnounceIfRehydrated, context);
+
+            if (request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
                 && request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString() is var sessionId
                 && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId, out var sequence)
                 && eventStreamId == StreamableHttpServerTransport.UnsolicitedMessageStreamId
@@ -76,11 +89,68 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                     && TryParseEventId(writerEventId, out _, out _, out var writerSequence)
                     && sequence > writerSequence)
                 {
-                    request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = writerEventId;
+                    request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = _streams.FirstEventId(sessionId);
                 }
             }
 
             return _next(context);
+        }
+
+        /// <summary>
+        /// Runs when the SDK starts the response, which is after it migrated the session (inside the SDK, so
+        /// after this middleware ran). All of this is the SDK's own state, so nothing has to be recorded:
+        /// <list type="bullet">
+        ///   <item>Only an accepted request has the <see cref="McpServer"/> feature.</item>
+        ///   <item>Only a rehydrated session knows its client up front: the SDK sets
+        ///   <see cref="McpServerOptions.KnownClientCapabilities"/> during migration, on that session's options.</item>
+        ///   <item>A remaining Last-Event-ID is a resume of an old stream (a POST stream, or this session's stream
+        ///   in this process), which has its own events. <see cref="InvokeAsync"/> removed the header if it was
+        ///   a standalone stream of a previous process. Like the SDK, an empty value counts as no header.</item>
+        ///   <item>The SDK accepts one plain GET per session and refuses the others, so only the first gets a 200.</item>
+        /// </list>
+        /// That leaves the session's first standalone stream, where this runs on the priming event's write (a
+        /// flush on a protocol without one): the SDK holds the transport's send lock there, and every send
+        /// takes that lock, so the sends must not be awaited on this call stack. Task.Run lets them wait for
+        /// the lock, and by then the transport has the stream they are written to.
+        /// </summary>
+        Task AnnounceIfRehydrated(object state)
+        {
+            var context = (HttpContext)state;
+            if (context.Features.Get<McpServer>() is { } server
+                && server.ServerOptions.KnownClientCapabilities is not null
+                && string.IsNullOrEmpty(context.Request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader])
+                && context.Response.StatusCode == StatusCodes.Status200OK)
+            {
+                _ = Task.Run(() => SendListChangedAsync(server));
+            }
+            return Task.CompletedTask;
+        }
+
+        async Task SendListChangedAsync(McpServer server)
+        {
+            foreach (var method in DeclaredListChanged(server.ServerOptions.Capabilities))
+            {
+                try
+                {
+                    // Not the request's token: if the client drops now, the writer still stores the event for its resume.
+                    await server.SendNotificationAsync(method, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Only a hint is lost: the stream is not ours to break, and the next capability may still get through.
+                    _logger.LogWarning(ex, "Could not announce {Method} to a rehydrated session. SessionId={SessionId}", method, server.SessionId);
+                }
+            }
+        }
+
+        static IEnumerable<string> DeclaredListChanged(ServerCapabilities? capabilities)
+        {
+            if (capabilities?.Tools?.ListChanged == true)
+                yield return NotificationMethods.ToolListChangedNotification;
+            if (capabilities?.Prompts?.ListChanged == true)
+                yield return NotificationMethods.PromptListChangedNotification;
+            if (capabilities?.Resources?.ListChanged == true)
+                yield return NotificationMethods.ResourceListChangedNotification;
         }
 
         /// <summary>
