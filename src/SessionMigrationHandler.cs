@@ -67,6 +67,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         public const string IdleTimeoutEnvVar = "MCP_PLUGIN_IDLE_TIMEOUT_SECONDS";
 
         private const string KeyPrefix = "mcp:session:";
+        private const string McpSessionIdHeader = "Mcp-Session-Id";
 
         // Defence-in-depth: validate Mcp-Session-Id format ourselves before using it as
         // a Redis key suffix, instead of trusting the upstream MCP SDK alone (issue #72).
@@ -206,6 +207,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                     sessionId.Length);
                 return;
             }
+
+            // The SDK fires this again for a repeated `initialize` of a live session, with the HttpContext of the
+            // FIRST request, whose object Kestrel may by then have reused for another user's request on that
+            // connection. The record is keyed by context.User, so only the request that minted this session,
+            // recognisable by the session id the SDK puts on its response, may write it.
+            if (context.Response.Headers[McpSessionIdHeader] != sessionId)
+                return;
 
             try
             {

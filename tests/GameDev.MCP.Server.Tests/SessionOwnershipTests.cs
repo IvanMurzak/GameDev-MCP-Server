@@ -64,7 +64,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         };
 
         static HttpContext As(params Claim[] claims)
-            => new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, claims.Length == 0 ? null : "test")) };
+        {
+            var context = new DefaultHttpContext { User = new ClaimsPrincipal(new ClaimsIdentity(claims, claims.Length == 0 ? null : "test")) };
+            context.Response.Headers[McpSessionTokenMiddleware.SessionIdHeader] = Id; // what the SDK sets on the minting response
+            return context;
+        }
 
         static Claim Sub(string value, string issuer = "as") => new("sub", value, ClaimValueTypes.String, issuer);
 
@@ -119,12 +123,56 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         {
             var alice = As(Sub("alice@example.com")).User;
             var cache = NewCache();
-            await Handler(cache).OnSessionInitializedAsync(new DefaultHttpContext { User = alice }, Id, Init(), CancellationToken.None);
+            await Handler(cache).OnSessionInitializedAsync(As(Sub("alice@example.com")), Id, Init(), CancellationToken.None);
             var key = SessionMigrationHandler.BuildKey(Id, alice);
 
             Assert.DoesNotContain("alice", key);
             Assert.NotNull(await cache.GetAsync(key)); // else this looked at the wrong key
             Assert.Null(await cache.GetAsync(AnonymousKey));
+        }
+
+        [Fact]
+        public async Task RepeatedInitialize_OnAReusedContext_CannotFileTheRecordUnderItsNewUser()
+        {
+            var reused = As(Sub("mallory"));
+            reused.Response.Headers[McpSessionTokenMiddleware.SessionIdHeader] = "mallorys-own-session";
+            var cache = NewCache();
+
+            await Handler(cache).OnSessionInitializedAsync(reused, Id, Init(), CancellationToken.None);
+
+            Assert.Null(await Handler(cache).AllowSessionMigrationAsync(As(Sub("mallory")), Id, CancellationToken.None));
+        }
+
+        [Theory]
+        [InlineData(TokenAuthenticationHandler.LocalTokenSessionOwner)] // auth=token: the principal holds only a UPN
+        [InlineData(TokenAuthenticationHandler.OAuthNoSubjectSessionOwner)] // oauth token without sub
+        public async Task PrincipalWithOnlyAUpn_RehydratesThroughTheSdksLastFallback(string owner)
+        {
+            var upn = new Claim(ClaimTypes.Upn, owner);
+
+            Assert.NotNull(await Roundtrip(As(upn), As(upn)));
+            Assert.Null(await Roundtrip(As(upn), As(Sub("alice"))));
+        }
+
+        [Fact]
+        public async Task ClaimsOfAnUnauthenticatedIdentity_DoNotCount()
+        {
+            var alice = As(Sub("alice"));
+            var forged = new DefaultHttpContext
+            {
+                User = new ClaimsPrincipal(new[] { new ClaimsIdentity(new[] { Sub("alice") }), new ClaimsIdentity(new[] { Sub("mallory") }, "test") }),
+            };
+
+            Assert.Null(await Roundtrip(alice, forged));
+        }
+
+        [Fact]
+        public void AuthenticatedPrincipal_WithoutAStableClaim_NeverEqualsARealOwner()
+        {
+            var noClaim = SessionMigrationHandler.HashOwner(new ClaimsPrincipal(new ClaimsIdentity("test")));
+
+            Assert.NotNull(noClaim);
+            Assert.NotEqual(noClaim, SessionMigrationHandler.HashOwner(As(Sub("alice")).User));
         }
 
         [Fact]
@@ -186,16 +234,31 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             Assert.Equal(HttpStatusCode.NotFound, (await Post(http, "mallory", sessionId, ToolsList, ct)).StatusCode);
 
+            var crafted = resultEventId.Substring(0, resultEventId.LastIndexOf(':') + 1) + "0";
             using var replay = NewRequest(HttpMethod.Get, "mallory", sessionId);
             replay.Headers.Accept.ParseAdd("text/event-stream");
-            replay.Headers.Add(ExpiredStreamResumeMiddleware.LastEventIdHeader, resultEventId.Substring(0, resultEventId.LastIndexOf(':') + 1) + "0");
+            replay.Headers.Add(ExpiredStreamResumeMiddleware.LastEventIdHeader, crafted);
             var replayed = await http.SendAsync(replay, HttpCompletionOption.ResponseHeadersRead, ct);
             Assert.Equal(HttpStatusCode.NotFound, replayed.StatusCode);
             Assert.DoesNotContain(AuthedServer.Secret, await replayed.Content.ReadAsStringAsync(ct));
 
+            using var strangerDelete = NewRequest(HttpMethod.Delete, "mallory", sessionId);
+            await http.SendAsync(strangerDelete, ct);
+
             // The stranger's attempts left the owner's session intact, and once it is back the SDK guards it.
             Assert.Equal(HttpStatusCode.OK, (await Post(http, "alice", sessionId, ToolsList, ct)).StatusCode);
             Assert.Equal(HttpStatusCode.Forbidden, (await Post(http, "mallory", sessionId, ToolsList, ct)).StatusCode);
+
+            // Control: the same crafted id does replay for its owner, so the 404 above refused something real.
+            using var ownerReplay = NewRequest(HttpMethod.Get, "alice", sessionId);
+            ownerReplay.Headers.Accept.ParseAdd("text/event-stream");
+            ownerReplay.Headers.Add(ExpiredStreamResumeMiddleware.LastEventIdHeader, crafted);
+            using var ownerStream = await http.SendAsync(ownerReplay, HttpCompletionOption.ResponseHeadersRead, ct);
+            Assert.Equal(HttpStatusCode.OK, ownerStream.StatusCode);
+            using var reader = new System.IO.StreamReader(await ownerStream.Content.ReadAsStreamAsync(ct));
+            string? line;
+            while ((line = await reader.ReadLineAsync(ct)) != null && !line.Contains(AuthedServer.Secret)) { }
+            Assert.NotNull(line);
         }
 
         static readonly object ToolsList = new { jsonrpc = "2.0", id = 3, method = "tools/list", @params = new { } };
@@ -239,8 +302,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                     .WithHttpTransport(o => o.SessionMode = HttpServerSessionMode.Stateful)
                     .WithTools(new[] { McpServerTool.Create(() => Secret, new McpServerToolCreateOptions { Name = "secret" }) })
                     .WithDistributedCacheEventStreamStore(Program.ConfigureEventStreamStore);
+                Program.AddStandaloneStreamTracking(builder.Services);
 
                 var app = builder.Build();
+                app.UseMiddleware<ExpiredStreamResumeMiddleware>();
+                app.UseMiddleware<StaleStandaloneStreamResumeMiddleware>();
                 app.UseAuthentication();
                 app.UseAuthorization();
                 app.MapMcp().RequireAuthorization();
@@ -257,7 +323,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                     var user = Request.Headers[UserHeader].ToString();
                     if (string.IsNullOrEmpty(user))
                         return Task.FromResult(AuthenticateResult.NoResult());
-                    var identity = new ClaimsIdentity(new[] { new Claim("sub", user) }, "test");
+                    var identity = new ClaimsIdentity(new[] { new Claim("sub", user), new Claim(ClaimTypes.NameIdentifier, user) }, "test"); // as TokenAuthenticationHandler
                     return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), "test")));
                 }
             }

@@ -138,7 +138,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 resolved);
 
             await handler.OnSessionInitializedAsync(
-                new DefaultHttpContext(),
+                MintingRequest("abc123"),
                 sessionId: "abc123",
                 initializeParams: NewInitializeParams(),
                 CancellationToken.None);
@@ -161,7 +161,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 TimeSpan.Zero);
 
             await handler.OnSessionInitializedAsync(
-                new DefaultHttpContext(),
+                MintingRequest("abc123"),
                 sessionId: "abc123",
                 initializeParams: NewInitializeParams(),
                 CancellationToken.None);
@@ -170,6 +170,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal(
                 SessionMigrationHandler.DefaultSessionTtl,
                 recordingCache.LastOptions!.AbsoluteExpirationRelativeToNow);
+        }
+
+        private static HttpContext MintingRequest(string sessionId)
+        {
+            var context = new DefaultHttpContext();
+            context.Response.Headers["Mcp-Session-Id"] = sessionId;
+            return context;
         }
 
         private static InitializeRequestParams NewInitializeParams() => new()

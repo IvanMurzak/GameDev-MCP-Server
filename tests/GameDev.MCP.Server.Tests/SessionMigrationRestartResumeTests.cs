@@ -40,7 +40,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             // Process 1 persists on `initialize`.
             var before = new SessionMigrationHandler(sharedCache, NullLogger<SessionMigrationHandler>.Instance);
-            await before.OnSessionInitializedAsync(new DefaultHttpContext(), sessionId, original, CancellationToken.None);
+            var initializeRequest = new DefaultHttpContext();
+            initializeRequest.Response.Headers["Mcp-Session-Id"] = sessionId;
+            await before.OnSessionInitializedAsync(initializeRequest, sessionId, original, CancellationToken.None);
 
             // Process 2 (restarted — brand-new handler, empty in-memory state) resumes from the cache.
             var afterRestart = new SessionMigrationHandler(sharedCache, NullLogger<SessionMigrationHandler>.Instance);
@@ -73,7 +75,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var handler = new SessionMigrationHandler(sharedCache, NullLogger<SessionMigrationHandler>.Instance);
             const string badSessionId = "../../etc/passwd";
 
-            await handler.OnSessionInitializedAsync(new DefaultHttpContext(), badSessionId, NewInitializeParams(), CancellationToken.None);
+            var initializeRequest = new DefaultHttpContext();
+            initializeRequest.Response.Headers["Mcp-Session-Id"] = badSessionId;
+            await handler.OnSessionInitializedAsync(initializeRequest, badSessionId, NewInitializeParams(), CancellationToken.None);
             Assert.Equal(0, sharedCache.Count); // nothing persisted for an invalid id
 
             var result = await handler.AllowSessionMigrationAsync(new DefaultHttpContext(), badSessionId, CancellationToken.None);
