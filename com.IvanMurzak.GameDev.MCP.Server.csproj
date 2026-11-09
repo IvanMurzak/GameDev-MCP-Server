@@ -65,13 +65,13 @@
     engine-specific server code in this repository. Keep these pins in lockstep
     with the engine plugins (Unity-MCP / Godot-MCP / Unreal-MCP).
 
-    TEMPORARY PRE-RELEASE PINS (owner rule: between test waves the libraries are integrated without a
-    release): com.IvanMurzak.McpPlugin.Server + com.IvanMurzak.McpPlugin (+ their McpPlugin.Common
-    dependency) 8.20.1-dev.22d8341 are packed from MCP-Plugin-dotnet main 22d8341 and committed under
-    prerelease-packages/; the repo-root Directory.Build.props adds that folder as a restore source for every
-    project here (host, tests, Docker build). At the release: set the published McpPlugin version, delete
-    prerelease-packages/ and Directory.Build.props, and drop their COPY lines from the Dockerfile and the
-    !prerelease-packages exception from .gitignore.
+    The McpPlugin and ReflectorNet pins move together. Cascade release (train t-2026-10-30-03): the
+    8.14.0-dev.71fa5c1 / 5.5.1-dev.ec3702e pre-release pins became the published McpPlugin 8.14.0 and
+    ReflectorNet 5.5.1; prerelease-packages/, Directory.Build.props and their Dockerfile COPY lines are gone.
+    9.3.1: McpPlugin 8.15.0 (a tool that throws on the request's content is HTTP 422 on the direct endpoint, not 500).
+    9.3.2: no pin change; first release carrying the MCP registry ownership proof (mcp-name in the NuGet readme, Docker label).
+    9.4.4 (train t-2026-11-09-04): the 8.20.1-dev.22d8341 pre-release pins became the published McpPlugin 8.21.0;
+    the pre-release feed (prerelease-packages/, Directory.Build.props, Dockerfile COPY) is gone again.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
     <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.1" />
