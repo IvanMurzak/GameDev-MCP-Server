@@ -11,6 +11,7 @@
 using System;
 using System.Text;
 using System.Threading.Tasks;
+using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
@@ -34,8 +35,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// </summary>
     public sealed class StaleStandaloneStreamResumeMiddleware
     {
-        const string SessionIdHeader = "Mcp-Session-Id";
-
         readonly RequestDelegate _next;
         readonly StandaloneStreamTrackingStore _streams;
         readonly ILogger<StaleStandaloneStreamResumeMiddleware> _logger;
@@ -55,15 +54,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             var request = context.Request;
             if (HttpMethods.IsGet(request.Method)
                 && request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
-                && request.Headers.TryGetValue(SessionIdHeader, out var sessionId)
+                && request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString() is var sessionId
+                && !_streams.HasLiveWriter(sessionId)
                 && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId)
                 && eventStreamId == StreamableHttpServerTransport.UnsolicitedMessageStreamId
-                && eventSessionId == sessionId.ToString()
-                && !_streams.HasLiveWriter(eventSessionId))
+                && eventSessionId == sessionId)
             {
                 _logger.LogInformation(
                     "Attaching a new standalone GET stream for a resume from a previous process. SessionId={SessionId}",
-                    eventSessionId);
+                    sessionId);
                 request.Headers.Remove(ExpiredStreamResumeMiddleware.LastEventIdHeader);
             }
 

@@ -29,7 +29,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     public sealed class StandaloneStreamTrackingStore : ISseEventStreamStore
     {
         readonly ISseEventStreamStore _inner;
-        readonly ConcurrentDictionary<string, object> _liveWriters = new();
+        readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters = new();
 
         public StandaloneStreamTrackingStore(ISseEventStreamStore inner) => _inner = inner;
 
@@ -41,10 +41,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             if (options.StreamId != StreamableHttpServerTransport.UnsolicitedMessageStreamId)
                 return writer;
 
-            // Keyed removal: disposing a replaced session's writer must not drop its successor's entry.
-            var entry = new KeyValuePair<string, object>(options.SessionId, new object());
-            _liveWriters[entry.Key] = entry.Value;
-            return new TrackedWriter(writer, () => _liveWriters.TryRemove(entry));
+            var tracked = new TrackedWriter(writer, _liveWriters, options.SessionId);
+            _liveWriters[options.SessionId] = tracked;
+            return tracked;
         }
 
         public ValueTask<ISseEventStreamReader?> GetStreamReaderAsync(string lastEventId, CancellationToken cancellationToken = default)
@@ -53,12 +52,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         sealed class TrackedWriter : ISseEventStreamWriter
         {
             readonly ISseEventStreamWriter _inner;
-            readonly System.Action _onDisposed;
+            readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters;
+            readonly string _sessionId;
 
-            public TrackedWriter(ISseEventStreamWriter inner, System.Action onDisposed)
+            public TrackedWriter(ISseEventStreamWriter inner, ConcurrentDictionary<string, TrackedWriter> liveWriters, string sessionId)
             {
                 _inner = inner;
-                _onDisposed = onDisposed;
+                _liveWriters = liveWriters;
+                _sessionId = sessionId;
             }
 
             public ValueTask SetModeAsync(SseEventStreamMode mode, CancellationToken cancellationToken = default)
@@ -69,7 +70,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
             public ValueTask DisposeAsync()
             {
-                _onDisposed();
+                // Removes this writer only: disposing a replaced session's writer must not drop its successor's entry.
+                _liveWriters.TryRemove(new KeyValuePair<string, TrackedWriter>(_sessionId, this));
                 return _inner.DisposeAsync();
             }
         }

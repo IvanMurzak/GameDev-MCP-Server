@@ -192,7 +192,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests.Harness
             return ((int)response.StatusCode, string.IsNullOrWhiteSpace(text) ? null : JsonNode.Parse(text));
         }
 
-        static int FreePort()
+        internal static int FreePort()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();

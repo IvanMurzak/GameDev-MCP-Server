@@ -10,14 +10,13 @@
 
 using System;
 using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Http;
 using System.Net.ServerSentEvents;
-using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.GameDev.MCP.Server.Http;
+using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
+using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -48,14 +47,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         const string Session = "session-1";
         static readonly string Get = StreamableHttpServerTransport.UnsolicitedMessageStreamId;
 
-        static string EventId(string session, string stream, int sequence = 1)
-            => $"{Convert.ToBase64String(Encoding.UTF8.GetBytes(session))}:{Convert.ToBase64String(Encoding.UTF8.GetBytes(stream))}:{sequence}";
+        static string EventId(string session, string stream)
+            => $"{Convert.ToBase64String(Encoding.UTF8.GetBytes(session))}:{Convert.ToBase64String(Encoding.UTF8.GetBytes(stream))}:1";
 
         static IDistributedCache NewCache()
             => new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
 
-        static StandaloneStreamTrackingStore NewStore(IDistributedCache cache) => new(
-            new DistributedCacheEventStreamStore(Options.Create(new DistributedCacheEventStreamStoreOptions { Cache = cache })));
+        static StandaloneStreamTrackingStore NewStore() => new(
+            new DistributedCacheEventStreamStore(Options.Create(new DistributedCacheEventStreamStoreOptions { Cache = NewCache() })));
 
         static SseEventStreamOptions StreamOptions(string streamId) => new()
         {
@@ -65,13 +64,12 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         };
 
         /// <summary>Runs the middleware; true when the request reached the next handler still carrying the header.</summary>
-        static async Task<bool> KeepsLastEventId(StandaloneStreamTrackingStore store, string method, string? sessionHeader, string lastEventId)
+        static async Task<bool> KeepsLastEventId(StandaloneStreamTrackingStore store, string method, string lastEventId)
         {
             var context = new DefaultHttpContext();
             context.Request.Method = method;
             context.Request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = lastEventId;
-            if (sessionHeader != null)
-                context.Request.Headers["Mcp-Session-Id"] = sessionHeader;
+            context.Request.Headers[McpSessionTokenMiddleware.SessionIdHeader] = Session;
 
             var reachedNext = false;
             var middleware = new StaleStandaloneStreamResumeMiddleware(
@@ -86,40 +84,40 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
         [Fact]
         public async Task StandaloneStreamWithoutLiveWriter_IsAttachedFresh()
-            => Assert.False(await KeepsLastEventId(NewStore(NewCache()), "GET", Session, EventId(Session, Get)));
+            => Assert.False(await KeepsLastEventId(NewStore(), "GET", EventId(Session, Get)));
 
         [Fact]
         public async Task StandaloneStreamWithLiveWriter_StillResumes()
         {
-            var store = NewStore(NewCache());
+            var store = NewStore();
             await using var writer = await store.CreateStreamAsync(StreamOptions(Get));
 
-            Assert.True(await KeepsLastEventId(store, "GET", Session, EventId(Session, Get)));
+            Assert.True(await KeepsLastEventId(store, "GET", EventId(Session, Get)));
         }
 
         [Fact]
         public async Task PostStream_StillResumes()
-            => Assert.True(await KeepsLastEventId(NewStore(NewCache()), "GET", Session, EventId(Session, "request-7")));
+            => Assert.True(await KeepsLastEventId(NewStore(), "GET", EventId(Session, "request-7")));
 
         [Fact]
         public async Task OtherSessionsEventId_IsLeftForTheSdkToReject()
-            => Assert.True(await KeepsLastEventId(NewStore(NewCache()), "GET", Session, EventId("other-session", Get)));
+            => Assert.True(await KeepsLastEventId(NewStore(), "GET", EventId("other-session", Get)));
 
         [Theory]
         [InlineData("not-an-event-id")]
         [InlineData("!!!:!!!:1")]
         public async Task UnparsableEventId_IsLeftForTheSdkToReject(string eventId)
-            => Assert.True(await KeepsLastEventId(NewStore(NewCache()), "GET", Session, eventId));
+            => Assert.True(await KeepsLastEventId(NewStore(), "GET", eventId));
 
         [Fact]
         public async Task PostRequest_IsNotTouched()
-            => Assert.True(await KeepsLastEventId(NewStore(NewCache()), "POST", Session, EventId(Session, Get)));
+            => Assert.True(await KeepsLastEventId(NewStore(), "POST", EventId(Session, Get)));
 
         [Fact]
         public async Task EventIdFormat_MatchesTheSdkStore()
         {
             // The format is internal to the SDK: this fails on an SDK bump that changes it.
-            await using var writer = await NewStore(NewCache()).CreateStreamAsync(StreamOptions(Get));
+            await using var writer = await NewStore().CreateStreamAsync(StreamOptions(Get));
 
             var item = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
 
@@ -131,7 +129,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task LiveWriter_IsTrackedUntilDisposed_AndOnlyForTheStandaloneStream()
         {
-            var store = NewStore(NewCache());
+            var store = NewStore();
 
             await using (await store.CreateStreamAsync(StreamOptions("request-7")))
                 Assert.False(store.HasLiveWriter(Session));
@@ -146,7 +144,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task DisposingAReplacedWriter_KeepsItsSuccessorTracked()
         {
-            var store = NewStore(NewCache());
+            var store = NewStore();
             var replaced = await store.CreateStreamAsync(StreamOptions(Get));
             await using var successor = await store.CreateStreamAsync(StreamOptions(Get));
 
@@ -162,7 +160,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var ct = timeout.Token;
             var cache = NewCache();
-            var port = FreePort();
+            var port = ServerHarness.FreePort();
 
             var first = await RestartableServer.StartAsync(cache, port, ct);
             await using var client = await McpClient.CreateAsync(
@@ -189,13 +187,6 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await rehydrated.SendNotificationAsync(NotificationMethods.ToolListChangedNotification, ct);
 
             await received.Task.WaitAsync(ct);
-        }
-
-        static int FreePort()
-        {
-            using var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
         }
 
         /// <summary>One server process: the wiring of Program.cs for session persistence, over a cache that outlives it.</summary>
