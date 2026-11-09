@@ -1,0 +1,24 @@
+src/SessionMigrationHandler.cs
+  s_5562bab908d2a5::t_f3ca6cccdb0fcf 351-355
+  s_5562bab908d2a5::t_760a695ecfd7e8 348-350
+  s_5562bab908d2a5::t_32d1213ebc2fa8 356-358
+  s_5562bab908d2a5::t_0c3cf10b9bf860 14-17,19,39-46,71-74,216-220,293-310,324,326,334-347,359-368
+tests/GameDev.MCP.Server.Tests/SessionOwnershipTests.cs
+  s_5562bab908d2a5::t_a893052afe507e 1-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0cab831d0706156af9c2a712e8f2df254f1a0d74",
+  "prompts": {},
+  "sessions": {
+    "s_5562bab908d2a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bd2580a5-6950-4c06-8049-81deb0e35b77",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
