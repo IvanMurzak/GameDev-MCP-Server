@@ -68,7 +68,7 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client to Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (8h, so a local session survives a working day) |
 | `MCP_AUTH` | `--auth` | transport-dependent | Authentication mode: `none`, `token` or `oauth` (stdio -> none; http -> oauth when issuer + public-url set; `token` only when asked for) |
-| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode, for AI clients and the engine plugin alike |
+| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode, for streamableHttp AI clients and the engine plugin |
 | `REDIS_URL` | — | — | streamableHttp: sessions survive a server restart. Unset: a restart loses them, and clients get `404` / `-32001` and must re-initialize |
 | `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL. Required for `oauth` |
 | `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |

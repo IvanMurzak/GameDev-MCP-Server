@@ -111,7 +111,7 @@ CLI arguments override environment variables.
 | `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client → Server transport: `stdio` or `streamableHttp` |
 | `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (this host seeds 8h instead of the package default of 600s, so a local session survives a working day). Multi-tenant hosts should lower it and use a Redis session-migration record for long-window resumption |
 | `MCP_AUTH` | `--auth` | transport-dependent (see [Authentication](#authentication)) | Authentication mode: `none`, `token` or `oauth` |
-| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode. Required for it, unread otherwise |
+| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode. Required for it, ignored by `none` and `oauth` |
 | `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL (e.g. `https://ai-game.dev`). Required for `oauth` |
 | `MCP_PUBLIC_URL` | `--public-url` | — | This server's canonical public URL / token audience (e.g. `https://ai-game.dev/mcp`). Required for `oauth`; seeds the Origin allow-list |
 | `REDIS_URL` | — | — | streamableHttp: stores sessions and their SSE events in Redis, so a session survives a server restart. Unset: a restart loses every session (see [Sessions and restarts](#sessions-and-restarts)) |
@@ -137,12 +137,12 @@ The server is an OAuth 2.1 **resource server**, with an offline shared-secret mo
 | Mode | Auth | Default for | Use |
 | --- | --- | --- | --- |
 | `none` | none — single-instance, zero-config | **stdio** | offline / local dev / CI |
-| `token` | one shared bearer secret (`MCP_PLUGIN_TOKEN`), compared in constant time; `401` without it | explicit `--auth token` only | self-hosted, one project, no authorization server |
+| `token` | one shared bearer secret (`MCP_PLUGIN_TOKEN`), compared in constant time; `401` without it | explicit `--auth token` / `MCP_AUTH=token` only | self-hosted, one project, no authorization server |
 | `oauth` | ES256 JWT validated locally via cached JWKS (with PAT introspection fallback); `401` + `resource_metadata` challenge | **streamableHttp** | signed-in localhost **and** hosted |
 
 - **Transport-conditional default:** `stdio` defaults to `none`. `streamableHttp` defaults to `oauth` **when both `--auth-issuer` and `--public-url` are configured**; otherwise it stays on `none` and logs a warning (so the zero-config `docker run` / `--port 8080` quickstart still works). An explicit `--auth` always wins.
 - **`oauth` requires** `--auth-issuer` (the authorization server, e.g. `https://ai-game.dev`) **and** `--public-url` (this server's canonical audience). Startup fails fast if either is missing while `--auth oauth` is set.
-- **`token` mode** applies to AI clients and to the engine plugin alike: both must send the secret. In Godot-MCP that means `GODOT_MCP_TOKEN` (see its README); a plugin that sends none is disconnected, and `tools/list` then answers only with the server's own tools. The secret crosses cleartext HTTP unless TLS terminates in front of the server.
+- **`token` mode** applies to streamableHttp AI clients and to the engine plugin: both must send the secret. In Godot-MCP that means `GODOT_MCP_TOKEN` (see its README); a plugin that sends none, or a wrong one, is disconnected, and `tools/list` then returns an empty list (the server's own tools exist only in `oauth` mode). The secret crosses cleartext HTTP unless TLS terminates in front of the server.
 - **Origin validation** (DNS-rebinding defense) runs in **all** modes: a request with a non-allowed `Origin` gets `403`. Loopback and the `--public-url` origin are allowed by default; add more with `MCP_ALLOWED_ORIGINS`.
 - **Bind** defaults to loopback. Set `--bind any` (or `0.0.0.0`) for a hosted deployment a reverse proxy must reach.
 
@@ -166,13 +166,13 @@ An MCP session lives in the server process. What a streamableHttp client sees wh
 
 | | With `REDIS_URL` | Without |
 | --- | --- | --- |
-| The session | Survives: the same session id keeps working for the user who created it | **Lost** |
+| The session | Survives for the migration-record lifetime (`MCP_SESSION_MIGRATION_TTL_SECONDS`, default the idle window, 8 h from `initialize`): the same session id keeps working for the user who created it | **Lost** |
 | The client's next request | Works | `404` with JSON-RPC error `-32001` (`Session not found`) |
-| What the client must do | Nothing | Start a new session with `initialize` |
+| What the client must do | Nothing, within that lifetime; past it, or while Redis is unreachable, as in the other column | Start a new session with `initialize` |
 
 Without a store there is nothing a restarted server could restore: it no longer knows the session or the client's protocol version, so the `404` is the correct signal, and the MCP specification tells the client to re-initialize on it. The C# (`ModelContextProtocol` 2.4.0) and TypeScript (1.32.2) SDK clients report the error and leave re-initializing to the application, so an application that does not handle it stays failed until it reconnects. Configure Redis when clients must survive a server update.
 
-A persisted session belongs to its creator: a different authenticated user presenting its id gets the same `404`.
+A persisted session belongs to its creator: a different authenticated user presenting its id gets `403` while the session is live, and the same `404` after a restart, until the owner has resumed it.
 
 ## Configure an AI agent
 
