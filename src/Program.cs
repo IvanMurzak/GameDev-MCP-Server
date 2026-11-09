@@ -333,17 +333,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server
         {
             options.MetadataAbsoluteExpiration = null;
         }
-        #pragma warning restore MCP9006
 
         /// <summary>Wraps the distributed-cache event store so the SDK writes through the tracking store (the last registration wins).</summary>
         internal static void AddStandaloneStreamTracking(IServiceCollection services)
         {
             services.AddSingleton<DistributedCacheEventStreamStore>();
             services.AddSingleton(sp => new StandaloneStreamTrackingStore(sp.GetRequiredService<DistributedCacheEventStreamStore>()));
-            #pragma warning disable MCP9006 // Stateful by design (session migration, list_changed; McpPlugin needs a session): SEP-2567 back-compat API.
             services.AddSingleton<ISseEventStreamStore>(sp => sp.GetRequiredService<StandaloneStreamTrackingStore>());
-            #pragma warning restore MCP9006
         }
+        #pragma warning restore MCP9006
 
         /// <summary>
         /// Convert a redis-URI-style connection string (redis://[user:pass@]host:port[/db])
