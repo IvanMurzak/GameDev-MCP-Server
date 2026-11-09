@@ -1,0 +1,44 @@
+src/SessionMigrationHandler.cs
+  s_de4a534a20842f::t_242a59309d5bc4 1-302
+tests/GameDev.MCP.Server.Tests/SessionMigrationTtlTests.cs
+  s_de4a534a20842f::t_a8b229575fb86a 1-223
+src/Program.cs
+  s_de4a534a20842f::t_1b909a1671d534 81,85-116,147
+  s_de4a534a20842f::t_745fa1b1709faa 20,23,26
+  s_de4a534a20842f::t_9173482f09b5f0 117-119
+  s_de4a534a20842f::t_3f4da1630724d4 146
+  s_de4a534a20842f::t_5ec75e31904426 148-150
+  s_7d63991d8c1342::t_3507e2dbf7bd71 120-136,151-152,217-269
+tests/GameDev.MCP.Server.Tests/GameDev.MCP.Server.Tests.csproj
+  s_de4a534a20842f::t_be91fd4801dc44 1-27
+.dockerignore
+  s_7d63991d8c1342::t_fce19e28c2c2c5 15-17
+.github/workflows/test_pull_request.yml
+  s_7d63991d8c1342::t_7687f3a0c7892a 39-41
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_7d63991d8c1342::t_1e64e470ed393f 65,90-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "26119687a1ec8b44c0f03822326a80505d1d0ed1",
+  "prompts": {},
+  "sessions": {
+    "s_7d63991d8c1342": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ab62bad7daece533d",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    },
+    "s_de4a534a20842f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f7ba192-cf2d-431f-901d-3d275f59f0dd",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

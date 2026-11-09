@@ -1,0 +1,21 @@
+src/Http/StaleStandaloneStreamResumeMiddleware.cs
+  s_debdc9afe844e4::t_2b92632df209db 43-44,108,111-114,121
+tests/GameDev.MCP.Server.Tests/RehydratedSessionListChangedTests.cs
+  s_debdc9afe844e4::t_02614e4a8ae351 131-155,201,208,337,340,348,350,382,384-388,395,432,456
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0ff70ddb1b47e214d021c1eb15710f07600de0e",
+  "prompts": {},
+  "sessions": {
+    "s_debdc9afe844e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bee1447-daad-4942-84ce-727c982ecb67",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

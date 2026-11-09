@@ -1,0 +1,25 @@
+README.md
+  s_de4a534a20842f::t_1db6907b9c12d6 119,121
+com.IvanMurzak.GameDev.MCP.Server.csproj
+  s_de4a534a20842f::t_a42aa6c421545c 16
+docs/NUGET.md
+  s_de4a534a20842f::t_f720aa8bcd5dfd 76
+server.json
+  s_de4a534a20842f::t_db8037909ac6b1 10,16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.5",
+  "base_commit_sha": "c77594824d73fe54b7d531e492315101839866cc",
+  "prompts": {},
+  "sessions": {
+    "s_de4a534a20842f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2f7ba192-cf2d-431f-901d-3d275f59f0dd",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

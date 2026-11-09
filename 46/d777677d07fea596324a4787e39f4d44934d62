@@ -1,0 +1,22 @@
+.github/workflows/dockerhub_description.yml
+  s_c6665a063e4666::t_2f8e0e3f4eb780 16-20
+  s_c6665a063e4666::t_8e669cda09f426 41
+.github/workflows/test_pull_request.yml
+  s_c6665a063e4666::t_9d03d0b0608fd0 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "46d777677d07fea596324a4787e39f4d44934d62",
+  "prompts": {},
+  "sessions": {
+    "s_c6665a063e4666": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "95e1d8d7-5cfc-4361-803d-3b23a8934a01",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
