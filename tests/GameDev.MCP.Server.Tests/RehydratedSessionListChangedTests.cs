@@ -93,6 +93,16 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await server.SendNotificationAsync(Sentinel, ct);
         }
 
+        /// <summary>
+        /// A resume has no response until the sentinel's replay starts it, so a wrongly sent notification
+        /// would come after that sentinel: the count has to run on to a second one.
+        /// </summary>
+        static async Task AssertSilentAfterFirstSentinelAsync(RawStream resumed, McpServer server, CancellationToken ct)
+        {
+            Assert.Equal(Sentinel, await resumed.ReadMethodAsync(ct));
+            Assert.Empty(await CountUntilSentinelAsync(resumed, server, expected: 0, ct));
+        }
+
         static void AssertOneOfEach(Dictionary<string, int> counts)
         {
             Assert.Equal(1, counts.GetValueOrDefault(Tools));
@@ -159,7 +169,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await SettleThenSendSentinelAsync(server, ct);
             await using var resumed = await opening;
 
-            Assert.Equal(Sentinel, await resumed.ReadMethodAsync(ct));
+            await AssertSilentAfterFirstSentinelAsync(resumed, server, ct);
         }
 
         [Fact]
@@ -247,7 +257,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await SettleThenSendSentinelAsync(server, ct);
             await using var resumed = await opening;
 
-            Assert.Equal(Sentinel, await resumed.ReadMethodAsync(ct));
+            await AssertSilentAfterFirstSentinelAsync(resumed, server, ct);
         }
 
         [Fact]
