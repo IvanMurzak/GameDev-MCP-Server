@@ -112,13 +112,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         }
 
         [Fact]
-        public async Task IdFromAPreviousProcess_AheadOfTheNewWriter_MovesToItsLastEvent()
+        public async Task IdFromAPreviousProcess_AheadOfTheNewWriter_MovesToItsFirstEvent()
         {
             var store = NewStore();
             await using var writer = await store.CreateStreamAsync(StreamOptions(Get));
-            var written = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
+            var first = await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
+            await writer.WriteEventAsync(new SseItem<JsonRpcMessage?>(null));
 
-            Assert.Equal(written.EventId, await ResumedEventId(store, "GET", EventId(Session, Get) + "000"));
+            Assert.Equal(first.EventId, await ResumedEventId(store, "GET", EventId(Session, Get) + "000"));
         }
 
         [Fact]
@@ -202,9 +203,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 }),
                 cancellationToken: ct);
 
+            // Not a list_changed: the first GET announces those by itself, this must prove the stream stays live.
+            const string method = "notifications/test/after-restart";
             var received = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             await using var handler = client.RegisterNotificationHandler(
-                NotificationMethods.ToolListChangedNotification,
+                method,
                 (_, _) => { received.TrySetResult(); return ValueTask.CompletedTask; });
 
             await first.WaitForLiveWriterAsync(client.SessionId!, ct);
@@ -217,86 +220,9 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             // Else this was a plain GET and the middleware under test did nothing.
             Assert.True(second.SawResume, "The client did not reconnect with a Last-Event-ID.");
 
-            await rehydrated.SendNotificationAsync(NotificationMethods.ToolListChangedNotification, ct);
+            await rehydrated.SendNotificationAsync(method, ct);
 
             await received.Task.WaitAsync(ct);
-        }
-
-        /// <summary>One server process: the wiring of Program.cs for session persistence, over a cache that outlives it.</summary>
-        sealed class RestartableServer : IAsyncDisposable
-        {
-            readonly WebApplication _app;
-            readonly ConcurrentDictionary<string, McpServer> _sessions;
-            bool _disposed;
-
-            RestartableServer(WebApplication app, ConcurrentDictionary<string, McpServer> sessions)
-            {
-                _app = app;
-                _sessions = sessions;
-            }
-
-            public bool SawResume { get; private set; }
-
-            public static async Task<RestartableServer> StartAsync(IDistributedCache cache, int port, CancellationToken ct)
-            {
-                var sessions = new ConcurrentDictionary<string, McpServer>();
-                var builder = WebApplication.CreateSlimBuilder();
-                builder.Logging.ClearProviders();
-                builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
-                builder.Services.AddSingleton(cache);
-                builder.Services.AddSingleton<ISessionMigrationHandler>(sp => new SessionMigrationHandler(
-                    cache, NullLogger<SessionMigrationHandler>.Instance));
-                builder.Services
-                    .AddMcpServer(o => o.Capabilities = new ServerCapabilities { Tools = new ToolsCapability { ListChanged = true } })
-                    .WithHttpTransport(o =>
-                    {
-                        o.SessionMode = HttpServerSessionMode.Stateful;
-                        o.RunSessionHandler = (_, server, token) =>
-                        {
-                            sessions[server.SessionId!] = server;
-                            return server.RunAsync(token);
-                        };
-                    })
-                    .WithDistributedCacheEventStreamStore(Program.ConfigureEventStreamStore);
-                Program.AddStandaloneStreamTracking(builder.Services);
-
-                var app = builder.Build();
-                var server = new RestartableServer(app, sessions);
-                app.Use((context, next) =>
-                {
-                    if (context.Request.Headers.ContainsKey(ExpiredStreamResumeMiddleware.LastEventIdHeader))
-                        server.SawResume = true;
-                    return next(context);
-                });
-                app.UseMiddleware<StaleStandaloneStreamResumeMiddleware>();
-                app.MapMcp();
-                await app.StartAsync(ct);
-                return server;
-            }
-
-            public async Task<McpServer> WaitForSessionAsync(string sessionId, CancellationToken ct)
-            {
-                McpServer? server;
-                while (!_sessions.TryGetValue(sessionId, out server))
-                    await Task.Delay(50, ct);
-                return server;
-            }
-
-            public async Task WaitForLiveWriterAsync(string sessionId, CancellationToken ct)
-            {
-                var streams = _app.Services.GetRequiredService<StandaloneStreamTrackingStore>();
-                while (!streams.HasLiveWriter(sessionId))
-                    await Task.Delay(50, ct);
-            }
-
-            public async ValueTask DisposeAsync()
-            {
-                if (_disposed)
-                    return;
-                _disposed = true;
-                await _app.StopAsync(CancellationToken.None);
-                await _app.DisposeAsync();
-            }
         }
     }
 

@@ -25,11 +25,22 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// <see cref="StaleStandaloneStreamResumeMiddleware"/> can tell a resume the session can serve from
     /// one left over from a previous process. The SDK disposes the writer only with the transport, not
     /// when a GET ends, so an entry lives exactly as long as the session can still deliver notifications.
+    ///
+    /// <para>Also holds the sessions rehydrated in this process whose first standalone stream has not been
+    /// told that the catalogue may have changed.</para>
     /// </summary>
     public sealed class StandaloneStreamTrackingStore : ISseEventStreamStore
     {
         readonly ISseEventStreamStore _inner;
+        /// <summary>
+        /// A mark is only taken by a standalone GET, and a client need not ever open one, so marks need their
+        /// own limit. Past it the oldest mark goes: all that client misses is this hint, and only if this many
+        /// other sessions were rehydrated before its first GET. Each mark is one session id (at most 128 chars).
+        /// </summary>
+        internal const int MaxPendingRehydrations = 4096;
+
         readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters = new();
+        readonly OrderedDictionary<string, bool> _pendingRehydrations = new(); // insertion order: the oldest is first
 
         public StandaloneStreamTrackingStore(ISseEventStreamStore inner) => _inner = inner;
 
@@ -37,6 +48,27 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         /// <summary>The last event id written to the session's live stream; null without a writer or before its first event.</summary>
         public string? LastEventId(string sessionId) => _liveWriters.TryGetValue(sessionId, out var writer) ? writer.LastEventId : null;
+
+        /// <summary>The first event id written to the session's live stream (its priming event); null without a writer or before its first event.</summary>
+        public string? FirstEventId(string sessionId) => _liveWriters.TryGetValue(sessionId, out var writer) ? writer.FirstEventId : null;
+
+        /// <summary>Records that this process rehydrated the session.</summary>
+        public void MarkRehydrated(string sessionId)
+        {
+            lock (_pendingRehydrations)
+            {
+                _pendingRehydrations.TryAdd(sessionId, true);
+                if (_pendingRehydrations.Count > MaxPendingRehydrations)
+                    _pendingRehydrations.RemoveAt(0);
+            }
+        }
+
+        /// <summary>True for the one caller that takes the session's mark.</summary>
+        public bool TryTakeRehydrated(string sessionId)
+        {
+            lock (_pendingRehydrations)
+                return _pendingRehydrations.Remove(sessionId);
+        }
 
         public async ValueTask<ISseEventStreamWriter> CreateStreamAsync(SseEventStreamOptions options, CancellationToken cancellationToken = default)
         {
@@ -57,7 +89,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             readonly ISseEventStreamWriter _inner;
             readonly ConcurrentDictionary<string, TrackedWriter> _liveWriters;
             readonly string _sessionId;
+            volatile string? _firstEventId;
             volatile string? _lastEventId;
+
+            public string? FirstEventId => _firstEventId;
 
             public string? LastEventId
             {
@@ -78,6 +113,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             public async ValueTask<SseItem<JsonRpcMessage?>> WriteEventAsync(SseItem<JsonRpcMessage?> sseItem, CancellationToken cancellationToken = default)
             {
                 var written = await _inner.WriteEventAsync(sseItem, cancellationToken).ConfigureAwait(false);
+                _firstEventId ??= written.EventId;
                 LastEventId = written.EventId;
                 return written;
             }

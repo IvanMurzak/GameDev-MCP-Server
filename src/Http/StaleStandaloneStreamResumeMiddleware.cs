@@ -9,12 +9,16 @@
 */
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using com.IvanMurzak.McpPlugin.Server.Auth;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Http
@@ -36,7 +40,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     ///
     /// <para>A client can also miss the new stream's first event and retry with its old id. A new writer
     /// restarts its sequence, so the SDK would wait silently for a sequence far ahead; such a resume is
-    /// moved to the writer's last event instead.</para>
+    /// moved to the writer's first event instead, so it still gets everything the new stream sent.</para>
+    ///
+    /// <para>A rehydrated session had no subscriber while it was not in memory, so a catalogue change in
+    /// that time is lost for good. So the first standalone stream of a session rehydrated in this process
+    /// gets one <c>list_changed</c> per capability that declares it, and the client lists again.</para>
     ///
     /// <para>Liveness is per process, so this assumes one server process per Redis key prefix.</para>
     /// </summary>
@@ -59,9 +67,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         public Task InvokeAsync(HttpContext context)
         {
             var request = context.Request;
-            if (HttpMethods.IsGet(request.Method)
-                && request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
-                && request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString() is var sessionId
+            if (!HttpMethods.IsGet(request.Method))
+                return _next(context);
+
+            var sessionId = request.Headers[McpSessionTokenMiddleware.SessionIdHeader].ToString();
+            if (sessionId.Length > 0)
+                context.Response.OnStarting(() => AnnounceIfRehydrated(context, sessionId));
+
+            if (request.Headers.TryGetValue(ExpiredStreamResumeMiddleware.LastEventIdHeader, out var lastEventId)
                 && TryParseEventId(lastEventId.ToString(), out var eventSessionId, out var eventStreamId, out var sequence)
                 && eventStreamId == StreamableHttpServerTransport.UnsolicitedMessageStreamId
                 && eventSessionId == sessionId)
@@ -76,11 +89,64 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                     && TryParseEventId(writerEventId, out _, out _, out var writerSequence)
                     && sequence > writerSequence)
                 {
-                    request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = writerEventId;
+                    request.Headers[ExpiredStreamResumeMiddleware.LastEventIdHeader] = _streams.FirstEventId(sessionId);
                 }
             }
 
             return _next(context);
+        }
+
+        /// <summary>
+        /// Runs when the SDK starts the response, which is after it migrated the session (inside the SDK, so
+        /// after this middleware ran). For a standalone stream that is the priming event's write: the SDK
+        /// holds the transport's send lock there, and every send takes that lock, so the sends must not be
+        /// awaited on this call stack. Task.Run lets them wait for the lock, and by then the transport has
+        /// the stream they are written to.
+        ///
+        /// <para>The mark stays for any other response. No <see cref="McpServer"/> feature: the SDK refused
+        /// the request. No live writer: the GET resumed a POST stream, and the transport would drop the
+        /// notifications because it has no standalone stream yet.</para>
+        /// </summary>
+        Task AnnounceIfRehydrated(HttpContext context, string sessionId)
+        {
+            if (context.Features.Get<McpServer>() is { } server
+                && _streams.HasLiveWriter(sessionId)
+                && _streams.TryTakeRehydrated(sessionId))
+            {
+                _ = Task.Run(() => SendListChangedAsync(server, sessionId));
+            }
+            return Task.CompletedTask;
+        }
+
+        async Task SendListChangedAsync(McpServer server, string sessionId)
+        {
+            foreach (var method in DeclaredListChanged(server.ServerOptions))
+            {
+                try
+                {
+                    // Not the request's token: if the client drops now, the writer still stores the event for its resume.
+                    await server.SendNotificationAsync(method, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    // Only a hint is lost: the stream is not ours to break, and the next capability may still get through.
+                    _logger.LogWarning(ex, "Could not announce {Method} to a rehydrated session. SessionId={SessionId}", method, sessionId);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The list_changed notifications the server declares. The SDK's effective capabilities are not
+        /// public, so this mirrors how it derives them: the option, or a collection, which forces the flag on.
+        /// </summary>
+        static IEnumerable<string> DeclaredListChanged(McpServerOptions options)
+        {
+            if (options.Capabilities?.Tools?.ListChanged == true || options.ToolCollection is not null)
+                yield return NotificationMethods.ToolListChangedNotification;
+            if (options.Capabilities?.Prompts?.ListChanged == true || options.PromptCollection is not null)
+                yield return NotificationMethods.PromptListChangedNotification;
+            if (options.Capabilities?.Resources?.ListChanged == true || options.ResourceCollection is not null)
+                yield return NotificationMethods.ResourceListChangedNotification;
         }
 
         /// <summary>
