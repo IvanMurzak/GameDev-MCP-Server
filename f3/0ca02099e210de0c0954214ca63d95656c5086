@@ -1,0 +1,21 @@
+README.md
+  s_59092606a4c1da::t_115ee66028ace3 113-114,117-118,134,139,144,156-159,162-175
+docs/NUGET.md
+  s_59092606a4c1da::t_79e17636a29dd3 70-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f30ca02099e210de0c0954214ca63d95656c5086",
+  "prompts": {},
+  "sessions": {
+    "s_59092606a4c1da": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "s_59092606a4c1da",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

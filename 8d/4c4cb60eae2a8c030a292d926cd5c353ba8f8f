@@ -1,0 +1,34 @@
+.github/workflows/test_pull_request.yml
+  s_de71e20c9d8602::t_22539e423b2d35 84-86,92-96,98
+  s_de71e20c9d8602::t_c82caef18ea805 64-69
+  s_de71e20c9d8602::t_3614c6ca0b574d 204-206
+  s_de71e20c9d8602::t_235eeaccbdf654 30-32
+.gitattributes
+  s_de71e20c9d8602::t_402e7a6477eb60 1-3
+.github/scripts/chain_feed.py
+  s_1b065aee860b88::t_4953f5ed711ac8 36,54-80,120-122,478-487,553-589,602-603,705-781,887,893,1241-1243,1993-1995,2243-2269,2272-2280,2284,2540-2545,2580,2756-2761,2764,3223-3229,3231-3232,3241-3245,3247,3252-3254,3256-3263,3265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8d4c4cb60eae2a8c030a292d926cd5c353ba8f8f",
+  "prompts": {},
+  "sessions": {
+    "s_1b065aee860b88": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a33a2012cf4d81e65",
+        "model": "unknown"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    },
+    "s_de71e20c9d8602": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b1fa7ae0-224c-4b0e-8499-22456e0d6a3f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

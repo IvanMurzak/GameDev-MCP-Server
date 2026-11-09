@@ -1,0 +1,21 @@
+README.md
+  s_2c60e57835cca1::t_c1c870b60ae6b2 170
+docs/NUGET.md
+  s_2c60e57835cca1::t_c1c870b60ae6b2 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "01b7dc394aeedff383f704673bf64a9e1491eb17",
+  "prompts": {},
+  "sessions": {
+    "s_2c60e57835cca1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13249-98d2-7d90-a73d-5852850f2cf4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}

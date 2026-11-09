@@ -1,0 +1,23 @@
+src/Http/SseKeepAliveMiddleware.cs
+  s_69007e0ae0d22a::t_3c7164d41a495f 46,49,54,62-63,85,87,100,107,111,116,133-134
+src/Program.cs
+  s_69007e0ae0d22a::t_5111c627ccaa95 262-264
+tests/GameDev.MCP.Server.Tests/SseKeepAliveTests.cs
+  s_69007e0ae0d22a::t_e6846cd6667759 46,49,51,53,55,64,67,79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "43008906d7261504ff37e05a118d73bf3e7ffd88",
+  "prompts": {},
+  "sessions": {
+    "s_69007e0ae0d22a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "617fd26a-a796-4e8f-9cb6-1f1c852196e5",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Ivan Murzak <Ivan.D.Murzak@gmail.com>"
+    }
+  }
+}
