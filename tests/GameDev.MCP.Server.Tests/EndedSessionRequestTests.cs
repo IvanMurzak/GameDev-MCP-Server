@@ -46,6 +46,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             context.Features.Set<IHttpResponseBodyFeature>(new StreamResponseBodyFeature(response.Body));
             context.Request.Method = "POST";
             context.Request.Path = path;
+            context.Request.Headers["Mcp-Session-Id"] = "s-1";
             context.Request.Body = new MemoryStream(Encoding.UTF8.GetBytes(body));
             return (context, response);
         }
@@ -72,9 +73,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await Middleware(ConsumeBodyThenCancel()).InvokeAsync(context);
 
             Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
-            using var json = JsonDocument.Parse(Body(context));
-            Assert.Equal(42, json.RootElement.GetProperty("id").GetInt32());
-            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, json.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+            AssertSessionNotFound(JsonNode.Parse(Body(context)), 42);
         }
 
         [Fact]
@@ -90,9 +89,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 
             var body = Body(context);
             Assert.StartsWith("event: message\ndata: ", body);
-            using var json = JsonDocument.Parse(body.Split("data: ")[1].Trim());
-            Assert.Equal(42, json.RootElement.GetProperty("id").GetInt32());
-            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, json.RootElement.GetProperty("error").GetProperty("code").GetInt32());
+            AssertSessionNotFound(JsonNode.Parse(body.Split("data: ")[1].Trim()), 42);
         }
 
         [Fact]
@@ -158,9 +155,22 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             var json = text.Split('\n').Where(l => l.StartsWith("data:", StringComparison.Ordinal))
                 .Select(l => JsonNode.Parse(l.Substring(5).Trim())).LastOrDefault(n => n?["id"] != null)
                 ?? JsonNode.Parse(text);
-            Assert.Equal(42, json!["id"]!.GetValue<int>());
-            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, json["error"]!["code"]!.GetValue<int>());
+            AssertSessionNotFound(json, 42);
         }
+
+        static void AssertSessionNotFound(JsonNode? message, int id)
+        {
+            Assert.Equal(id, message!["id"]!.GetValue<int>());
+            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, message["error"]!["code"]!.GetValue<int>());
+        }
+
+        [Theory]
+        [InlineData("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}", "7")]
+        [InlineData("{\"method\":\"tools/call\",\"params\":{\"id\":1,\"x\":[1,2]},\"id\":\"abc\"}", "\"abc\"")]
+        [InlineData("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", null)]
+        [InlineData("{\"params\":{\"big\":\"", null)] // the id lies beyond the recorded prefix
+        public void RequestId_IsReadFromTheTopLevelOnly(string prefix, string? expected)
+            => Assert.Equal(expected, EndedSessionRequestMiddleware.ReadRequestId(Encoding.UTF8.GetBytes(prefix))?.ToJsonString());
 
         static Task<HttpResponseMessage> Post(HttpClient http, string? sessionId, string body)
         {

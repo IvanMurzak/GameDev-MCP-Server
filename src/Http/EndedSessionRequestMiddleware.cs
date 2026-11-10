@@ -12,6 +12,7 @@ using System;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -41,8 +42,10 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
         internal const int SessionNotFoundCode = -32001;
         internal const string SessionNotFoundMessage = "Session not found: the session ended while this request was in flight.";
 
-        /// <summary>Larger bodies are not parsed for their id after the fact (the answer then carries <c>id: null</c>).</summary>
-        internal const long MaxIdLookupBytes = 1024 * 1024;
+        /// <summary>How much of the request body is kept to find its id afterwards; clients write <c>id</c> first or early.</summary>
+        internal const int IdPrefixBytes = 8 * 1024;
+
+        const string McpSessionIdHeader = "Mcp-Session-Id";
 
         readonly RequestDelegate _next;
         readonly ILogger<EndedSessionRequestMiddleware> _logger;
@@ -55,15 +58,19 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         public async Task InvokeAsync(HttpContext context)
         {
-            // MCP endpoints only: not the plugin hub, not the REST tool API.
-            if (!HttpMethods.IsPost(context.Request.Method) || !ClientErrorLoggingMiddleware.IsLoggedPath(context.Request.Path))
+            // Only a request of an existing session can outlive it, and only on the MCP endpoints (not the plugin
+            // hub, not the REST tool API).
+            if (!HttpMethods.IsPost(context.Request.Method)
+                || string.IsNullOrEmpty(context.Request.Headers[McpSessionIdHeader])
+                || !ClientErrorLoggingMiddleware.IsLoggedPath(context.Request.Path))
             {
                 await _next(context);
                 return;
             }
 
-            // Lets the request id be read back after the SDK consumed the body; small bodies stay in memory.
-            context.Request.EnableBuffering();
+            // Keeps the first bytes the SDK reads, so the request id can be found afterwards without buffering the body.
+            var body = new PrefixRecordingStream(context.Request.Body, IdPrefixBytes);
+            context.Request.Body = body;
             try
             {
                 await _next(context);
@@ -73,16 +80,20 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
                 _logger.LogInformation(
                     "MCP POST {Path} cancelled because its session ended while the request was in flight; answered {Code}.",
                     context.Request.Path, SessionNotFoundCode);
-                await AnswerAsync(context);
+                await AnswerAsync(context, ReadRequestId(body.Prefix));
+            }
+            finally
+            {
+                context.Request.Body = body.Inner;
             }
         }
 
-        static async Task AnswerAsync(HttpContext context)
+        static async Task AnswerAsync(HttpContext context, JsonNode? requestId)
         {
             var error = new JsonObject
             {
                 ["jsonrpc"] = "2.0",
-                ["id"] = await ReadRequestIdAsync(context.Request),
+                ["id"] = requestId,
                 ["error"] = new JsonObject { ["code"] = SessionNotFoundCode, ["message"] = SessionNotFoundMessage },
             }.ToJsonString();
 
@@ -103,20 +114,87 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             }
         }
 
-        static async Task<JsonNode?> ReadRequestIdAsync(HttpRequest request)
+        /// <summary>The top-level <c>id</c> of a JSON-RPC message from the start of its body, or null.</summary>
+        internal static JsonNode? ReadRequestId(ReadOnlySpan<byte> prefix)
         {
             try
             {
-                if (!request.Body.CanSeek || request.Body.Length > MaxIdLookupBytes)
+                var reader = new Utf8JsonReader(prefix, isFinalBlock: false, state: default);
+                if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
                     return null;
-                request.Body.Position = 0;
-                var node = await JsonNode.ParseAsync(request.Body);
-                return node is JsonObject message && message.TryGetPropertyValue("id", out var id) ? id?.DeepClone() : null;
+                while (reader.Read() && reader.TokenType == JsonTokenType.PropertyName)
+                {
+                    var isId = reader.ValueTextEquals("id");
+                    if (!reader.Read())
+                        return null;
+                    if (isId)
+                        return reader.TokenType switch
+                        {
+                            JsonTokenType.Number => reader.TryGetInt64(out var n) ? JsonValue.Create(n) : JsonValue.Create(reader.GetDouble()),
+                            JsonTokenType.String => JsonValue.Create(reader.GetString()),
+                            _ => null,
+                        };
+                    if (!reader.TrySkip())
+                        return null; // the id lies beyond the recorded prefix
+                }
+                return null;
             }
-            catch (Exception ex) when (ex is JsonException || ex is IOException || ex is ObjectDisposedException || ex is InvalidOperationException)
+            catch (JsonException)
             {
                 return null;
             }
+        }
+
+        /// <summary>A read-only pass-through that records the first bytes read from it.</summary>
+        sealed class PrefixRecordingStream : Stream
+        {
+            readonly byte[] _prefix;
+            int _recorded;
+
+            public PrefixRecordingStream(Stream inner, int capacity)
+            {
+                Inner = inner;
+                _prefix = new byte[capacity];
+            }
+
+            public Stream Inner { get; }
+            public ReadOnlySpan<byte> Prefix => _prefix.AsSpan(0, _recorded);
+
+            void Record(ReadOnlySpan<byte> read)
+            {
+                var take = Math.Min(read.Length, _prefix.Length - _recorded);
+                if (take <= 0)
+                    return;
+                read.Slice(0, take).CopyTo(_prefix.AsSpan(_recorded));
+                _recorded += take;
+            }
+
+            public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                var read = await Inner.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+                Record(buffer.Span.Slice(0, read));
+                return read;
+            }
+
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+                => ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+            public override int Read(byte[] buffer, int offset, int count)
+            {
+                var read = Inner.Read(buffer, offset, count);
+                Record(buffer.AsSpan(offset, read));
+                return read;
+            }
+
+            public override bool CanRead => true;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => throw new NotSupportedException();
+            public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+            public override void Flush() { }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
         }
     }
 }
