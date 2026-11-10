@@ -260,6 +260,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server
             {
                 // Ahead of UseMcpPluginServer so both wrap the MCP endpoint (and its auth): log the
                 // SDK's otherwise silent 4xx answers, and turn an expired SSE resume into a 400, not a 500.
+                // Outermost, so neither Kestrel nor Sentry sees a POST cancelled by its session's end as unhandled.
+                app.UseMiddleware<EndedSessionRequestMiddleware>();
                 app.UseMiddleware<ClientErrorLoggingMiddleware>();
                 var keepAlive = SseKeepAliveMiddleware.ResolveInterval(builder.Configuration[SseKeepAliveMiddleware.IntervalEnvVar]);
                 if (keepAlive > TimeSpan.Zero)
