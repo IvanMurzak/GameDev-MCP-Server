@@ -14,7 +14,6 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
@@ -22,12 +21,12 @@ using com.IvanMurzak.GameDev.MCP.Server.Http;
 using com.IvanMurzak.GameDev.MCP.Server.Tests.Harness;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 {
-    [Collection(LiveServerCollection.Name)]
     public class EndedSessionRequestTests
     {
         const string ToolsCall = "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\",\"params\":{\"name\":\"x\",\"arguments\":{}}}";
@@ -36,6 +35,15 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         {
             public bool Started;
             public override bool HasStarted => Started;
+        }
+
+        sealed class Lifetime : IHostApplicationLifetime
+        {
+            public CancellationTokenSource Stopping { get; } = new CancellationTokenSource();
+            public CancellationToken ApplicationStarted => CancellationToken.None;
+            public CancellationToken ApplicationStopping => Stopping.Token;
+            public CancellationToken ApplicationStopped => CancellationToken.None;
+            public void StopApplication() => Stopping.Cancel();
         }
 
         static (DefaultHttpContext Context, ResponseFeature Response) NewPost(string path = "/", string body = ToolsCall)
@@ -51,26 +59,37 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             return (context, response);
         }
 
-        static EndedSessionRequestMiddleware Middleware(RequestDelegate next)
-            => new EndedSessionRequestMiddleware(next, NullLogger<EndedSessionRequestMiddleware>.Instance);
+        static EndedSessionRequestMiddleware Middleware(RequestDelegate next, IHostApplicationLifetime? lifetime = null)
+            => new EndedSessionRequestMiddleware(next, NullLogger<EndedSessionRequestMiddleware>.Instance, lifetime);
 
-        /// <summary>The SDK's shape: read the whole body, then wait for a response the disposed session never sends.</summary>
-        static RequestDelegate ConsumeBodyThenCancel(Action<HttpContext>? beforeCancel = null) => async ctx =>
-        {
-            await new StreamReader(ctx.Request.Body).ReadToEndAsync();
-            beforeCancel?.Invoke(ctx);
-            throw new TaskCanceledException("A task was canceled.");
-        };
+        /// <summary>
+        /// The SDK's shape: read the whole body, mark the response as an event stream (the SDK does that just before
+        /// it hands the POST to the session's transport), then wait for a response the disposed session never sends.
+        /// </summary>
+        static RequestDelegate SessionEndsInFlight(ResponseFeature response, bool headersSent, string contentType = "text/event-stream")
+            => async ctx =>
+            {
+                await new StreamReader(ctx.Request.Body).ReadToEndAsync();
+                ctx.Response.ContentType = contentType;
+                response.Started = headersSent;
+                throw new TaskCanceledException("A task was canceled.");
+            };
 
         static string Body(HttpContext context)
             => Encoding.UTF8.GetString(((MemoryStream)context.Features.Get<IHttpResponseFeature>()!.Body).ToArray());
 
+        internal static void AssertSessionNotFound(JsonNode? message, int id)
+        {
+            Assert.Equal(id, message!["id"]!.GetValue<int>());
+            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, message["error"]!["code"]!.GetValue<int>());
+        }
+
         [Fact]
         public async Task CancelledBeforeAnyResponse_Answers404WithTheRequestId()
         {
-            var (context, _) = NewPost();
+            var (context, response) = NewPost();
 
-            await Middleware(ConsumeBodyThenCancel()).InvokeAsync(context);
+            await Middleware(SessionEndsInFlight(response, headersSent: false)).InvokeAsync(context);
 
             Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
             AssertSessionNotFound(JsonNode.Parse(Body(context)), 42);
@@ -81,11 +100,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         {
             var (context, response) = NewPost();
 
-            await Middleware(ConsumeBodyThenCancel(ctx =>
-            {
-                ctx.Response.ContentType = "text/event-stream";
-                response.Started = true;
-            })).InvokeAsync(context);
+            await Middleware(SessionEndsInFlight(response, headersSent: true)).InvokeAsync(context);
 
             var body = Body(context);
             Assert.StartsWith("event: message\ndata: ", body);
@@ -95,12 +110,35 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task ClientGone_KeepsTheDefaultPath()
         {
-            var (context, _) = NewPost();
+            var (context, response) = NewPost();
             using var aborted = new CancellationTokenSource();
             aborted.Cancel();
             context.RequestAborted = aborted.Token;
 
-            await Assert.ThrowsAsync<TaskCanceledException>(() => Middleware(ConsumeBodyThenCancel()).InvokeAsync(context));
+            await Assert.ThrowsAsync<TaskCanceledException>(() =>
+                Middleware(SessionEndsInFlight(response, headersSent: true)).InvokeAsync(context));
+        }
+
+        /// <summary>A persisted session survives the restart, so its client must not be told to abandon it.</summary>
+        [Fact]
+        public async Task Shutdown_KeepsTheDefaultPath()
+        {
+            var (context, response) = NewPost();
+            var lifetime = new Lifetime();
+            lifetime.StopApplication();
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() =>
+                Middleware(SessionEndsInFlight(response, headersSent: false), lifetime).InvokeAsync(context));
+        }
+
+        /// <summary>A cancellation before the SDK reached the transport (an auth or lookup timeout) is a real fault.</summary>
+        [Fact]
+        public async Task CancellationBeforeTheTransport_Propagates()
+        {
+            var (context, _) = NewPost();
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() =>
+                Middleware(_ => throw new TaskCanceledException("timeout")).InvokeAsync(context));
         }
 
         [Fact]
@@ -117,17 +155,41 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [InlineData("/hub/mcp-server")]
         public async Task NonMcpPaths_AreNotIntercepted(string path)
         {
-            var (context, _) = NewPost(path);
+            var (context, response) = NewPost(path);
 
-            await Assert.ThrowsAsync<TaskCanceledException>(() => Middleware(ConsumeBodyThenCancel()).InvokeAsync(context));
+            await Assert.ThrowsAsync<TaskCanceledException>(() =>
+                Middleware(SessionEndsInFlight(response, headersSent: true)).InvokeAsync(context));
         }
 
+        [Fact]
+        public async Task RequestWithoutASession_IsNotIntercepted()
+        {
+            var (context, response) = NewPost();
+            context.Request.Headers.Remove("Mcp-Session-Id");
+
+            await Assert.ThrowsAsync<TaskCanceledException>(() =>
+                Middleware(SessionEndsInFlight(response, headersSent: true)).InvokeAsync(context));
+        }
+
+        [Theory]
+        [InlineData("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}", "7")]
+        [InlineData("{\"method\":\"tools/call\",\"params\":{\"id\":1,\"x\":[1,2]},\"id\":\"abc\"}", "\"abc\"")]
+        [InlineData("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", null)]
+        [InlineData("{\"params\":{\"big\":\"", null)] // the id lies beyond the recorded prefix
+        public void RequestId_IsReadFromTheTopLevelOnly(string prefix, string? expected)
+            => Assert.Equal(expected, EndedSessionRequestMiddleware.ReadRequestId(Encoding.UTF8.GetBytes(prefix))?.ToJsonString());
+    }
+
+    [Collection(LiveServerCollection.Name)]
+    public class EndedSessionRequestLiveTests
+    {
         /// <summary>
         /// The real host: a request waits for a plugin that is not there, and its session is deleted meanwhile.
-        /// The SDK cancels the POST; the client must get a JSON-RPC error for its own id, not a dropped stream.
+        /// The SDK cancels the POST after it already sent the SSE headers; the client must get a JSON-RPC error
+        /// for its own id on that stream, not a stream that ends with nothing ("response ended prematurely").
         /// </summary>
         [Fact]
-        public async Task SessionDeletedWhileARequestIsInFlight_AnswersTheRequest()
+        public async Task SessionDeletedWhileARequestIsInFlight_AnswersTheRequestOnItsStream()
         {
             await using var server = await ServerHarness.StartAsync();
             var http = server.Http;
@@ -139,9 +201,13 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             await init.Content.ReadAsStringAsync();
             using (await Post(http, sessionId, "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")) { }
 
-            // No plugin is connected, so the call waits (--plugin-reconnect-wait-seconds=60) until the session ends.
-            var inFlight = Post(http, sessionId, ToolsCall);
-            await Task.Delay(1000);
+            // No plugin is connected, so the call waits (--plugin-reconnect-wait-seconds=60). Its headers arrive
+            // once the SDK handed it to the session's transport, which is the state this test needs.
+            using var inFlight = await Post(http, sessionId,
+                "{\"jsonrpc\":\"2.0\",\"id\":42,\"method\":\"tools/call\",\"params\":{\"name\":\"x\",\"arguments\":{}}}");
+            Assert.Equal(HttpStatusCode.OK, inFlight.StatusCode);
+            Assert.Equal("text/event-stream", inFlight.Content.Headers.ContentType?.MediaType);
+
             using (var delete = new HttpRequestMessage(HttpMethod.Delete, "/"))
             {
                 delete.Headers.TryAddWithoutValidation("Mcp-Session-Id", sessionId);
@@ -150,27 +216,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
                 Assert.True(deleted.IsSuccessStatusCode, $"DELETE answered {(int)deleted.StatusCode}");
             }
 
-            using var response = await inFlight.WaitAsync(TimeSpan.FromSeconds(30));
-            var text = await response.Content.ReadAsStringAsync();
-            var json = text.Split('\n').Where(l => l.StartsWith("data:", StringComparison.Ordinal))
-                .Select(l => JsonNode.Parse(l.Substring(5).Trim())).LastOrDefault(n => n?["id"] != null)
-                ?? JsonNode.Parse(text);
-            AssertSessionNotFound(json, 42);
+            var text = await inFlight.Content.ReadAsStringAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            var answer = text.Split('\n').Where(l => l.StartsWith("data:", StringComparison.Ordinal))
+                .Select(l => JsonNode.Parse(l.Substring(5).Trim())).LastOrDefault(n => n?["id"] != null);
+            EndedSessionRequestTests.AssertSessionNotFound(answer, 42);
         }
-
-        static void AssertSessionNotFound(JsonNode? message, int id)
-        {
-            Assert.Equal(id, message!["id"]!.GetValue<int>());
-            Assert.Equal(EndedSessionRequestMiddleware.SessionNotFoundCode, message["error"]!["code"]!.GetValue<int>());
-        }
-
-        [Theory]
-        [InlineData("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"ping\"}", "7")]
-        [InlineData("{\"method\":\"tools/call\",\"params\":{\"id\":1,\"x\":[1,2]},\"id\":\"abc\"}", "\"abc\"")]
-        [InlineData("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}", null)]
-        [InlineData("{\"params\":{\"big\":\"", null)] // the id lies beyond the recorded prefix
-        public void RequestId_IsReadFromTheTopLevelOnly(string prefix, string? expected)
-            => Assert.Equal(expected, EndedSessionRequestMiddleware.ReadRequestId(Encoding.UTF8.GetBytes(prefix))?.ToJsonString());
 
         static Task<HttpResponseMessage> Post(HttpClient http, string? sessionId, string body)
         {

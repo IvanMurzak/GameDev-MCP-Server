@@ -15,6 +15,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace com.IvanMurzak.GameDev.MCP.Server.Http
@@ -23,18 +24,23 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
     /// Answers an MCP POST whose session ended while the request was in flight with a JSON-RPC error,
     /// instead of letting the SDK's cancellation escape to Kestrel as an unhandled exception.
     ///
-    /// <para>When a session is disposed (a client <c>DELETE</c>, replace-by-identity, the idle timeout,
-    /// shutdown), the MCP SDK cancels every POST still waiting for that session's response and the
-    /// <see cref="OperationCanceledException"/> leaves <c>StreamableHttpPostTransport.HandlePostAsync</c>
-    /// unhandled (SDK 1.4.0 and 2.4.0 alike). Kestrel then logs a <c>fail</c>, Sentry records an event, and
-    /// the client gets either a 500 or, as the SDK usually flushed the SSE headers already, a 200 stream
-    /// that ends with no response for its request.</para>
+    /// <para>When a session is disposed (a client <c>DELETE</c>, replace-by-identity), the MCP SDK cancels
+    /// every POST still waiting for that session's response and the <see cref="OperationCanceledException"/>
+    /// leaves <c>StreamableHttpPostTransport.HandlePostAsync</c> unhandled (SDK 1.4.0 and 2.4.0 alike).
+    /// Kestrel then logs a <c>fail</c>, Sentry records an event, and the client gets either a 500 or, as the
+    /// SDK usually flushed the SSE headers already, a 200 stream that ends with no response for its
+    /// request.</para>
     ///
-    /// <para>This catches only that case: a cancellation of a POST whose client is still connected. The
-    /// client gets the SDK's own "Session not found" (<c>-32001</c>), the code that tells an MCP client to
-    /// start a new session: as a 404 when nothing was sent yet, otherwise as an SSE event carrying the
-    /// request's id. A client that went away keeps the default path, and every other exception propagates
-    /// untouched.</para>
+    /// <para>This catches only that case: a cancellation that reached the SDK's transport (the response is
+    /// already an event stream) of a POST whose client is still connected, outside shutdown. The client gets
+    /// the SDK's own "Session not found" (<c>-32001</c>), the code that tells an MCP client to start a new
+    /// session: as a 404 when nothing was sent yet, otherwise as an SSE event carrying the request's id.
+    /// Every other cancellation and exception propagates untouched, so a real fault still reaches the logs
+    /// and Sentry; on shutdown the default path stays, since a persisted session survives the restart and
+    /// must not be abandoned by its client.</para>
+    ///
+    /// <para>Known, accepted window: if the session ends while the SDK is writing this very request's
+    /// response, the client can receive that response and then this error for the same id.</para>
     /// </summary>
     public sealed class EndedSessionRequestMiddleware
     {
@@ -49,11 +55,14 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
 
         readonly RequestDelegate _next;
         readonly ILogger<EndedSessionRequestMiddleware> _logger;
+        readonly IHostApplicationLifetime? _lifetime;
 
-        public EndedSessionRequestMiddleware(RequestDelegate next, ILogger<EndedSessionRequestMiddleware> logger)
+        public EndedSessionRequestMiddleware(RequestDelegate next, ILogger<EndedSessionRequestMiddleware> logger,
+            IHostApplicationLifetime? lifetime = null)
         {
             _next = next;
             _logger = logger;
+            _lifetime = lifetime;
         }
 
         public async Task InvokeAsync(HttpContext context)
@@ -75,18 +84,35 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             {
                 await _next(context);
             }
-            catch (OperationCanceledException) when (!context.RequestAborted.IsCancellationRequested)
+            catch (OperationCanceledException) when (IsEndedSession(context))
             {
                 _logger.LogInformation(
                     "MCP POST {Path} cancelled because its session ended while the request was in flight; answered {Code}.",
                     context.Request.Path, SessionNotFoundCode);
-                await AnswerAsync(context, ReadRequestId(body.Prefix));
+                try
+                {
+                    await AnswerAsync(context, ReadRequestId(body.Prefix));
+                }
+                catch (Exception ex) when ((ex is OperationCanceledException || ex is IOException) && context.RequestAborted.IsCancellationRequested)
+                {
+                    // The client left while the answer was being written: nobody is there to receive it.
+                }
             }
             finally
             {
                 context.Request.Body = body.Inner;
             }
         }
+
+        /// <summary>
+        /// A cancellation the SDK's transport raised for a session that ended: the SDK set the event-stream
+        /// content type just before handing the POST to the transport, the client is still there, and the
+        /// host is not stopping.
+        /// </summary>
+        bool IsEndedSession(HttpContext context)
+            => !context.RequestAborted.IsCancellationRequested
+               && _lifetime?.ApplicationStopping.IsCancellationRequested != true
+               && context.Response.ContentType?.StartsWith("text/event-stream", StringComparison.OrdinalIgnoreCase) == true;
 
         static async Task AnswerAsync(HttpContext context, JsonNode? requestId)
         {
@@ -107,11 +133,8 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Http
             }
 
             // The SSE headers are out: the error can only travel as the stream's event for this request.
-            if (context.Response.ContentType?.StartsWith("text/event-stream", StringComparison.OrdinalIgnoreCase) == true)
-            {
-                await context.Response.WriteAsync($"event: message\ndata: {error}\n\n", context.RequestAborted);
-                await context.Response.Body.FlushAsync(context.RequestAborted);
-            }
+            await context.Response.WriteAsync($"event: message\ndata: {error}\n\n", context.RequestAborted);
+            await context.Response.Body.FlushAsync(context.RequestAborted);
         }
 
         /// <summary>The top-level <c>id</c> of a JSON-RPC message from the start of its body, or null.</summary>
