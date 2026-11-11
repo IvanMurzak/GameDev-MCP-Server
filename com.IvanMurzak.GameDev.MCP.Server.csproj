@@ -74,7 +74,7 @@
     the pre-release feed (prerelease-packages/, Directory.Build.props, Dockerfile COPY) is gone again.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
-    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.1" />
+    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.2" />
     <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.21.0" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
