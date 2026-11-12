@@ -6,12 +6,12 @@
     "url": "https://github.com/IvanMurzak/Unity-MCP",
     "source": "github"
   },
-  "version": "9.5.0",
+  "version": "9.5.1",
   "packages": [
     {
       "registryType": "nuget",
       "identifier": "com.IvanMurzak.GameDev.MCP.Server",
-      "version": "9.5.0",
+      "version": "9.5.1",
       "transport": {
         "type": "stdio"
       },
