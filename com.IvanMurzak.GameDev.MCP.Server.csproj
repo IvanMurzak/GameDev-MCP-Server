@@ -97,8 +97,8 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.14" />
     <PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="9.0.15" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.3" />
-    <PackageReference Include="NLog.Web.AspNetCore" Version="6.1.2" />
-    <PackageReference Include="R3" Version="1.3.0" />
+    <PackageReference Include="NLog.Web.AspNetCore" Version="6.3.0" />
+    <PackageReference Include="R3" Version="1.3.1" />
     <!-- Error reporting to a Sentry-compatible endpoint (GlitchTip on ai-game.dev). Inert unless
          MCP_SENTRY_DSN is set (src/Startup/ErrorReporting.cs), so local installs never report. -->
     <PackageReference Include="Sentry.AspNetCore" Version="6.12.1" />
