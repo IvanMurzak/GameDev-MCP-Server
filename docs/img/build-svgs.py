@@ -12,10 +12,10 @@ import svgkit as K  # noqa: E402
 
 def hero_right():
     cx, cy = 960, 190
-    s = K.wire("M884 190 L912 190", color=K.RED_TEXT, dur=1.6)
+    s = K.wire("M884 190 L902 190", color=K.RED_TEXT, dur=1.6)
     for i, y in enumerate((110, 190, 270)):
-        s += K.wire(f"M1008 190 L1072 {y}", color=K.BLUE, dur=2.2, begin=i * 0.6)
-    s += K.mark(cx, cy, 60)
+        s += K.wire(f"M1018 190 L1072 {y}", color=K.BLUE, dur=2.2, begin=i * 0.6)
+    s += K.mark(cx, cy, 50)
     s += K.pill(770, cy - 17, "AI agent", color=K.TEXT)[0]
     for y, name in ((110, "Unity"), (190, "Godot"), (270, "Unreal")):
         s += K.pill(1072, y - 17, name, color=K.TEXT, w=100)[0]
