@@ -1,10 +1,6 @@
 # AI Game Developer — GameDev MCP Server
 
-[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&color=1D4ED8&logo=nuget&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/)
-[![Docker](https://img.shields.io/docker/v/aigamedeveloper/mcp-server?sort=semver&label=Docker&color=6D28D9&logo=docker&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://hub.docker.com/r/aigamedeveloper/mcp-server)
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-0E7490?logo=dotnet&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0)
-[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&color=047857&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://discord.gg/cfbdMZX99G)
+[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&color=1D4ED8&logo=nuget&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/) [![Docker](https://img.shields.io/docker/v/aigamedeveloper/mcp-server?sort=semver&label=Docker&color=6D28D9&logo=docker&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://hub.docker.com/r/aigamedeveloper/mcp-server) [![.NET 9](https://img.shields.io/badge/-9.0-0E7490?logo=dotnet&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0) [![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&color=047857&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE) [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://discord.gg/cfbdMZX99G)
 
 Engine-agnostic [Model Context Protocol](https://modelcontextprotocol.io/) server shared by the game-engine MCP plugins:
 
@@ -49,12 +45,14 @@ Typical MCP client configuration (stdio):
 Inside a container the server must listen on all interfaces (`MCP_BIND=any`), or the port mapping cannot reach it:
 
 ```bash
-docker run --rm -p 127.0.0.1:8080:8080   -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_BIND=any   aigamedeveloper/mcp-server
+docker run --rm -p 127.0.0.1:8080:8080 \
+  -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_BIND=any \
+  aigamedeveloper/mcp-server
 ```
 
 ### Pre-built executables
 
-Download the zip for your platform from [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) — `gamedev-mcp-server-<rid>.zip` for `win-x64`, `win-x86`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64` — unzip, and run:
+Download `gamedev-mcp-server-<rid>.zip` for Windows, Linux or macOS from [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases), unzip, and run:
 
 ```bash
 ./gamedev-mcp-server --port 8080 --client-transport stdio
@@ -85,8 +83,7 @@ In stdio mode console logging is redirected to stderr so stdout stays clean for 
 
 The default level is `Info`. `MCP_LOG_LEVEL=Trace` dumps every MCP message body for debugging; it is very high volume and rotates `server-log.txt` down to a few minutes of retained history, so set it only while reproducing an issue.
 
-Write a pinned, URL-only MCP client config for an AI agent from the terminal:
-`gamedev-mcp-server configure --agent claude-code` (or `--agent codex --url https://ai-game.dev/mcp`; `configure --help` lists all agents).
+Write a pinned, URL-only MCP client config for an AI agent from the terminal: `gamedev-mcp-server configure --agent claude-code` (or `--agent codex --url https://ai-game.dev/mcp`; `configure --help` lists all agents).
 
 ## Compatibility
 
@@ -107,5 +104,9 @@ Server releases `9.2.5` and newer build against McpPlugin 8.x; `9.0.0`–`9.2.4`
 ## License
 
 [Apache-2.0](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE) — Copyright © 2026 Ivan Murzak
+
+<div align="center">
+  <a href="https://stand-with-ukraine.pp.ua"><img src="https://raw.githubusercontent.com/IvanMurzak/IvanMurzak/main/images/ukraine/flag-rounded.svg" width="28" height="28" alt="Stand with Ukraine" title="Stand with Ukraine"></a>
+</div>
 
 <!-- mcp-name: io.github.IvanMurzak/Unity-MCP -->

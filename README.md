@@ -2,47 +2,25 @@
 
 ![GameDev MCP Server: one MCP server between AI agents and the Unity, Godot and Unreal editor plugins](docs/img/hero.svg)
 
-[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&color=1D4ED8&logo=nuget&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/)
-[![Docker](https://img.shields.io/docker/v/aigamedeveloper/mcp-server?sort=semver&label=Docker&color=6D28D9&logo=docker&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://hub.docker.com/r/aigamedeveloper/mcp-server)
-[![.NET 9](https://img.shields.io/badge/.NET-9.0-0E7490?logo=dotnet&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0)
-[![Tests](https://img.shields.io/github/actions/workflow/status/IvanMurzak/GameDev-MCP-Server/test_pull_request.yml?branch=main&label=Tests&logo=githubactions&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/actions/workflows/test_pull_request.yml)
-[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&color=047857&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://discord.gg/cfbdMZX99G)
-[![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
+[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&color=1D4ED8&logo=nuget&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/) [![Docker](https://img.shields.io/docker/v/aigamedeveloper/mcp-server?sort=semver&label=Docker&color=6D28D9&logo=docker&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://hub.docker.com/r/aigamedeveloper/mcp-server) [![.NET 9](https://img.shields.io/badge/-9.0-0E7490?logo=dotnet&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0) [![Tests](https://img.shields.io/github/actions/workflow/status/IvanMurzak/GameDev-MCP-Server/test_pull_request.yml?branch=main&label=Tests&logo=githubactions&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/actions/workflows/test_pull_request.yml)<br>[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&color=047857&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE) [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://discord.gg/cfbdMZX99G)
 
 </div>
 
-**GameDev MCP Server** is the one [Model Context Protocol](https://modelcontextprotocol.io/) server
-behind the [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP),
-[Godot-MCP](https://github.com/IvanMurzak/Godot-MCP) and
-[Unreal-MCP](https://github.com/IvanMurzak/Unreal-MCP) plugins. It sits between your AI agent and the
-game editor: the agent speaks MCP to the server, the engine plugin connects to it over SignalR, and
-every tool, prompt and resource comes from the plugin. There is no engine-specific code here — it is a
-thin ASP.NET Core host over the NuGet packages
-[`com.IvanMurzak.McpPlugin.Server`](https://www.nuget.org/packages/com.IvanMurzak.McpPlugin.Server) and
-[`com.IvanMurzak.ReflectorNet`](https://www.nuget.org/packages/com.IvanMurzak.ReflectorNet).
+**GameDev MCP Server** is the one [Model Context Protocol](https://modelcontextprotocol.io/) server behind the [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP), [Godot-MCP](https://github.com/IvanMurzak/Godot-MCP) and [Unreal-MCP](https://github.com/IvanMurzak/Unreal-MCP) plugins. It sits between your AI agent and the game editor: the agent speaks MCP to the server, the engine plugin connects to it over SignalR, and every tool, prompt and resource comes from the plugin. There is no engine-specific code here — it is a thin ASP.NET Core host over the NuGet packages [`com.IvanMurzak.McpPlugin.Server`](https://www.nuget.org/packages/com.IvanMurzak.McpPlugin.Server) and [`com.IvanMurzak.ReflectorNet`](https://www.nuget.org/packages/com.IvanMurzak.ReflectorNet).
 
 ![An AI agent talks MCP over stdio or streamable HTTP to gamedev-mcp-server, which forwards each call over SignalR to the Unity-MCP, Godot-MCP or Unreal-MCP plugin](docs/img/architecture.svg)
 
-> You usually do not install this yourself: each engine plugin downloads and starts the matching
-> server version. Install it directly to run it in Docker, on a server, or from your own scripts.
+> You usually do not install this yourself: each engine plugin downloads and starts the matching server version. Install it directly to run it in Docker, on a server, or from your own scripts.
 >
-> Not to be confused with [AI-Game-Dev-Server](https://ai-game.dev), the cloud service. This project is
-> the local MCP host.
+> Not to be confused with [AI-Game-Dev-Server](https://ai-game.dev), the cloud service. This project is the local MCP host.
 
 ## Features
 
-- ✅ **One server, three engines** — Unity, Godot and Unreal plugins share one binary
-- ✅ **Two transports** — `stdio` for spawned servers, `streamableHttp` for URL clients
-- ✅ **Auth modes** — `none` locally, a shared `token`, or `oauth` for signed-in use
-- ✅ **Agent setup** — `configure --agent <id>` writes a pinned, URL-only client config
-- ✅ **Survives restarts** — with `REDIS_URL`, HTTP sessions outlive a server restart
-- ✅ **Runs anywhere** — executables for 7 platforms, Docker image, .NET global tool
+✅ **One server, three engines** — Unity, Godot and Unreal plugins share one binary<br>✅ **Two transports** — `stdio` for spawned servers, `streamableHttp` for URL clients<br>✅ **Auth modes** — `none` locally, a shared `token`, or `oauth` for signed-in use<br>✅ **Agent setup** — `configure --agent <id>` writes a pinned, URL-only client config<br>✅ **Survives restarts** — with `REDIS_URL`, HTTP sessions outlive a server restart<br>✅ **Runs anywhere** — executables for 7 platforms, Docker image, .NET global tool
 
 ## Install
 
-- **Executable** — `gamedev-mcp-server-<rid>.zip` from [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases)
-  (`win-x64`, `win-x86`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, plus `SHA256SUMS`)
+- **Executable** — `gamedev-mcp-server-<rid>.zip` from [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) for Windows, Linux and macOS
 - **Docker** — `docker pull aigamedeveloper/mcp-server` (`linux/amd64`, `linux/arm64`)
 - **.NET tool** — `dotnet tool install --global com.IvanMurzak.GameDev.MCP.Server` (needs the .NET 9 runtime)
 
@@ -75,8 +53,7 @@ gamedev-mcp-server --port 8080 --client-transport stdio
 gamedev-mcp-server configure --agent claude-code   # configure --help lists every agent
 ```
 
-**Docker.** Inside a container the server must listen on all interfaces (`MCP_BIND=any`), or the port
-mapping cannot reach it:
+**Docker.** Inside a container the server must listen on all interfaces (`MCP_BIND=any`), or the port mapping cannot reach it:
 
 ```bash
 docker run --rm -p 127.0.0.1:8080:8080 \
@@ -88,7 +65,7 @@ docker run --rm -p 127.0.0.1:8080:8080 \
 
 Every option is an environment variable or a CLI argument (arguments win). The ones you will reach for:
 
-| CLI argument | Environment variable | Default | |
+| CLI argument | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
 | `--port` | `MCP_PLUGIN_PORT` | `8080` | Port for AI clients and the engine plugin |
 | `--client-transport` | `MCP_PLUGIN_CLIENT_TRANSPORT` | `stdio` | `stdio` or `streamableHttp` |
@@ -104,8 +81,7 @@ The full list, logging and the `configure` command: [docs/configuration.md](docs
 - [Hosting and authentication](docs/hosting.md) — `none` / `token` / `oauth`, bind and Origin rules, Docker, sessions and Redis
 - [Compatibility](docs/compatibility.md) — server ↔ McpPlugin ↔ ReflectorNet versions and plugin-dependent behavior
 
-Current release **9.5.2** is built on McpPlugin.Server **8.23.0** and ReflectorNet **5.5.2**, for engine
-plugins on McpPlugin **8.x**.
+Current release **9.5.2** is built on McpPlugin.Server **8.23.0** and ReflectorNet **5.5.2**, for engine plugins on McpPlugin **8.x**.
 
 ## Build from source
 
@@ -115,18 +91,18 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 dotnet test tests/GameDev.MCP.Server.Tests/GameDev.MCP.Server.Tests.csproj
 ```
 
-Self-contained executables for all 7 platforms: `python build/build_all.py` (Python 3.9+, any OS;
-pass RIDs to build only some). Output lands in `publish/<rid>/` and is zipped as
-`gamedev-mcp-server-<rid>.zip`.
+Self-contained executables for all 7 platforms: `python build/build_all.py` (Python 3.9+, any OS; pass RIDs to build only some). Output lands in `publish/<rid>/` and is zipped as `gamedev-mcp-server-<rid>.zip`.
 
 ## Related
 
-- Engine plugins: [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) ·
-  [Godot-MCP](https://github.com/IvanMurzak/Godot-MCP) · [Unreal-MCP](https://github.com/IvanMurzak/Unreal-MCP)
-- Server core: [MCP-Plugin-dotnet](https://github.com/IvanMurzak/MCP-Plugin-dotnet) ·
-  [ReflectorNet](https://github.com/IvanMurzak/ReflectorNet)
+- Engine plugins: [Unity-MCP](https://github.com/IvanMurzak/Unity-MCP) · [Godot-MCP](https://github.com/IvanMurzak/Godot-MCP) · [Unreal-MCP](https://github.com/IvanMurzak/Unreal-MCP)
+- Server core: [MCP-Plugin-dotnet](https://github.com/IvanMurzak/MCP-Plugin-dotnet) · [ReflectorNet](https://github.com/IvanMurzak/ReflectorNet)
 - Community: [Discord](https://discord.gg/cfbdMZX99G)
 
 ## License
 
 [Apache-2.0](LICENSE) — Copyright © 2026 Ivan Murzak
+
+<div align="center">
+  <a href="https://stand-with-ukraine.pp.ua"><img src="https://raw.githubusercontent.com/IvanMurzak/IvanMurzak/main/images/ukraine/flag-rounded.svg" width="28" height="28" alt="Stand with Ukraine" title="Stand with Ukraine"></a>
+</div>
