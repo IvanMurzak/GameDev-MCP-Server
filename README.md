@@ -2,11 +2,12 @@
 
 ![GameDev MCP Server: one MCP server between AI agents and the Unity, Godot and Unreal editor plugins](docs/img/hero.svg)
 
-[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&labelColor=333A41)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/)
-[![Docker Image](https://img.shields.io/docker/image-size/aigamedeveloper/mcp-server/latest?label=Docker%20Image&logo=docker&logoColor=white&labelColor=333A41)](https://hub.docker.com/r/aigamedeveloper/mcp-server)
-[![Tests](https://img.shields.io/github/actions/workflow/status/IvanMurzak/GameDev-MCP-Server/test_pull_request.yml?branch=main&label=Tests&labelColor=333A41)](https://github.com/IvanMurzak/GameDev-MCP-Server/actions/workflows/test_pull_request.yml)
-[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&labelColor=333A41)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white&labelColor=333A41)](https://discord.gg/cfbdMZX99G)
+[![NuGet](https://img.shields.io/nuget/v/com.IvanMurzak.GameDev.MCP.Server?label=NuGet&color=1D4ED8&logo=nuget&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://www.nuget.org/packages/com.IvanMurzak.GameDev.MCP.Server/)
+[![Docker](https://img.shields.io/docker/v/aigamedeveloper/mcp-server?sort=semver&label=Docker&color=6D28D9&logo=docker&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://hub.docker.com/r/aigamedeveloper/mcp-server)
+[![.NET 9](https://img.shields.io/badge/.NET-9.0-0E7490?logo=dotnet&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/9.0)
+[![Tests](https://img.shields.io/github/actions/workflow/status/IvanMurzak/GameDev-MCP-Server/test_pull_request.yml?branch=main&label=Tests&logo=githubactions&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/actions/workflows/test_pull_request.yml)
+[![License](https://img.shields.io/github/license/IvanMurzak/GameDev-MCP-Server?label=License&color=047857&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&style=for-the-badge&labelColor=0F172A&logoColor=white)](https://discord.gg/cfbdMZX99G)
 [![Stand With Ukraine](https://raw.githubusercontent.com/vshymanskyy/StandWithUkraine/main/badges/StandWithUkraine.svg)](https://stand-with-ukraine.pp.ua)
 
 </div>
@@ -31,22 +32,19 @@ thin ASP.NET Core host over the NuGet packages
 
 ## Features
 
-| | |
-| --- | --- |
-| **One server, three engines** | The same binary serves Unity, Godot and Unreal; the catalog comes from whichever plugin connects |
-| **Two client transports** | `stdio` for agents that spawn the server, `streamableHttp` for agents that connect by URL |
-| **Auth modes** | `none` for local use, a shared `token` for self-hosting, `oauth` (OAuth 2.1 resource server) for signed-in and hosted use |
-| **Agent setup from the terminal** | `configure --agent <id>` writes a project-pinned, URL-only config for Claude Code, Codex, Cursor, Copilot, Gemini and more |
-| **Survives restarts** | With `REDIS_URL`, streamable HTTP sessions outlive a server restart |
-| **Runs anywhere** | Self-contained executables for 7 platforms, a multi-arch Docker image, and a .NET global tool |
+- ✅ **One server, three engines** — Unity, Godot and Unreal plugins share one binary
+- ✅ **Two transports** — `stdio` for spawned servers, `streamableHttp` for URL clients
+- ✅ **Auth modes** — `none` locally, a shared `token`, or `oauth` for signed-in use
+- ✅ **Agent setup** — `configure --agent <id>` writes a pinned, URL-only client config
+- ✅ **Survives restarts** — with `REDIS_URL`, HTTP sessions outlive a server restart
+- ✅ **Runs anywhere** — executables for 7 platforms, Docker image, .NET global tool
 
 ## Install
 
-| Channel | Get it |
-| --- | --- |
-| **Executable** | [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases): `gamedev-mcp-server-<rid>.zip` for `win-x64`, `win-x86`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, plus `SHA256SUMS` |
-| **Docker** | `docker pull aigamedeveloper/mcp-server` (`linux/amd64`, `linux/arm64`) |
-| **.NET tool** | `dotnet tool install --global com.IvanMurzak.GameDev.MCP.Server` (needs the .NET 9 runtime) |
+- **Executable** — `gamedev-mcp-server-<rid>.zip` from [Releases](https://github.com/IvanMurzak/GameDev-MCP-Server/releases)
+  (`win-x64`, `win-x86`, `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `osx-arm64`, plus `SHA256SUMS`)
+- **Docker** — `docker pull aigamedeveloper/mcp-server` (`linux/amd64`, `linux/arm64`)
+- **.NET tool** — `dotnet tool install --global com.IvanMurzak.GameDev.MCP.Server` (needs the .NET 9 runtime)
 
 ## Quick start
 
