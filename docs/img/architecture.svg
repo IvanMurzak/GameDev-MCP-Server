@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-label="An AI agent talks MCP over stdio or streamable HTTP to gamedev-mcp-server, which forwards each call over SignalR to the connected Unity-MCP, Godot-MCP or Unreal-MCP plugin">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="0.6" stop-color="#111a33"/>
+      <stop offset="1" stop-color="#1a1238"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1200" height="420" rx="18"/></clipPath>
+    <path id="c1" d="M330 200 L450 200"/>
+    <path id="u1" d="M750 200 C810 200 810 95 870 95"/>
+    <path id="g1" d="M750 200 L870 200"/>
+    <path id="r1" d="M750 200 C810 200 810 305 870 305"/>
+  </defs>
+  <style>
+    .sans { font-family: "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; }
+    .mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; }
+    .flow { stroke-dasharray: 5 6; animation: dash 1.4s linear infinite; }
+    @keyframes dash { to { stroke-dashoffset: -22; } }
+    .glow { animation: glow 3s ease-in-out infinite; }
+    @keyframes glow { 0%,100% { stroke-opacity: .55; } 50% { stroke-opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="420" fill="url(#bg)"/>
+    <rect width="1200" height="420" fill="url(#grid)"/>
+
+    <!-- column captions -->
+    <g class="sans" font-size="12" font-weight="600" fill="#7c87a6" letter-spacing="1.2">
+      <text x="185" y="44" text-anchor="middle">MCP CLIENT</text>
+      <text x="600" y="44" text-anchor="middle">THIS REPOSITORY</text>
+      <text x="1015" y="44" text-anchor="middle">ENGINE PLUGIN</text>
+    </g>
+
+    <!-- connectors -->
+    <g fill="none" stroke-width="2">
+      <use href="#c1" class="flow" stroke="#34d399"/>
+      <use href="#u1" class="flow" stroke="#67e8f9"/>
+      <use href="#g1" class="flow" stroke="#a5b4fc"/>
+      <use href="#r1" class="flow" stroke="#e879f9"/>
+    </g>
+    <g>
+      <circle r="4" fill="#34d399"><animateMotion dur="1.8s" repeatCount="indefinite"><mpath href="#c1"/></animateMotion></circle>
+      <circle r="4" fill="#67e8f9"><animateMotion dur="2.2s" begin=".4s" repeatCount="indefinite"><mpath href="#u1"/></animateMotion></circle>
+      <circle r="4" fill="#a5b4fc"><animateMotion dur="1.9s" begin=".9s" repeatCount="indefinite"><mpath href="#g1"/></animateMotion></circle>
+      <circle r="4" fill="#e879f9"><animateMotion dur="2.4s" begin="1.3s" repeatCount="indefinite"><mpath href="#r1"/></animateMotion></circle>
+    </g>
+    <g class="mono" font-size="12" fill="#94a3b8" text-anchor="middle">
+      <text x="390" y="186">MCP</text>
+      <text x="390" y="222">stdio / HTTP</text>
+    </g>
+
+    <g class="mono" font-size="12" text-anchor="middle">
+      <rect x="777" y="190" width="66" height="20" rx="10" fill="#111a33" stroke="#a5b4fc" stroke-opacity=".5"/>
+      <text x="810" y="204" fill="#cbd5e1">SignalR</text>
+    </g>
+
+    <!-- AI agent -->
+    <g class="sans">
+      <rect x="40" y="110" width="290" height="180" rx="14" fill="#0f172a" stroke="#34d399" stroke-opacity=".7" stroke-width="1.5"/>
+      <text x="64" y="148" font-size="20" font-weight="700" fill="#e2e8f0">AI agent</text>
+      <text x="64" y="182" font-size="14" fill="#cbd5e1">Claude Code · Codex · Cursor</text>
+      <text x="64" y="206" font-size="14" fill="#cbd5e1">Copilot · Gemini · Cline · …</text>
+      <text class="mono" x="64" y="250" font-size="12" fill="#7c87a6">tools/list · tools/call</text>
+      <text class="mono" x="64" y="270" font-size="12" fill="#7c87a6">prompts · resources</text>
+    </g>
+
+    <!-- server -->
+    <g class="sans">
+      <rect class="glow" x="450" y="80" width="300" height="240" rx="16" fill="#0b1020" stroke="url(#core)" stroke-width="2.5"/>
+      <rect x="450" y="80" width="300" height="240" rx="16" fill="url(#core)" fill-opacity=".07"/>
+      <text class="mono" x="600" y="122" text-anchor="middle" font-size="18" font-weight="700" fill="#e2e8f0">gamedev-mcp-server</text>
+      <text x="600" y="146" text-anchor="middle" font-size="13" fill="#94a3b8">thin ASP.NET Core host</text>
+      <line x1="478" y1="164" x2="722" y2="164" stroke="#334155"/>
+      <g font-size="14" fill="#cbd5e1">
+        <text x="478" y="192"><tspan fill="#67e8f9">▸</tspan> stdio or streamable HTTP</text>
+        <text x="478" y="218"><tspan fill="#a5b4fc">▸</tspan> auth: none · token · oauth</text>
+        <text x="478" y="244"><tspan fill="#e879f9">▸</tspan> forwards calls to the plugin</text>
+      </g>
+      <text class="mono" x="600" y="296" text-anchor="middle" font-size="11.5" fill="#7c87a6">McpPlugin.Server · ReflectorNet</text>
+    </g>
+
+    <!-- engine plugins -->
+    <g class="sans">
+      <rect x="870" y="65" width="290" height="60" rx="12" fill="#0f172a" stroke="#67e8f9" stroke-opacity=".7" stroke-width="1.5"/>
+      <text x="892" y="92" font-size="17" font-weight="700" fill="#e2e8f0">Unity-MCP</text>
+      <text x="892" y="113" font-size="13" fill="#94a3b8">Unity Editor and games</text>
+      <rect x="870" y="170" width="290" height="60" rx="12" fill="#0f172a" stroke="#a5b4fc" stroke-opacity=".7" stroke-width="1.5"/>
+      <text x="892" y="197" font-size="17" font-weight="700" fill="#e2e8f0">Godot-MCP</text>
+      <text x="892" y="218" font-size="13" fill="#94a3b8">Godot Editor and games</text>
+      <rect x="870" y="275" width="290" height="60" rx="12" fill="#0f172a" stroke="#e879f9" stroke-opacity=".7" stroke-width="1.5"/>
+      <text x="892" y="302" font-size="17" font-weight="700" fill="#e2e8f0">Unreal-MCP</text>
+      <text x="892" y="323" font-size="13" fill="#94a3b8">Unreal Editor and games</text>
+    </g>
+
+    <text class="sans" x="600" y="384" text-anchor="middle" font-size="14" fill="#94a3b8">Tools, prompts and resources come from the plugin that connects: one server binary serves every engine.</text>
+  </g>
+  <rect x=".5" y=".5" width="1199" height="419" rx="18" fill="none" stroke="#ffffff" stroke-opacity=".08"/>
+</svg>

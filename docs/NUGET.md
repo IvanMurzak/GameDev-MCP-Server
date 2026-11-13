@@ -44,8 +44,10 @@ Typical MCP client configuration (stdio):
 
 ### Docker
 
+Inside a container the server must listen on all interfaces (`MCP_BIND=any`), or the port mapping cannot reach it:
+
 ```bash
-docker run -i --rm -p 8080:8080 aigamedeveloper/mcp-server
+docker run --rm -p 127.0.0.1:8080:8080   -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_BIND=any   aigamedeveloper/mcp-server
 ```
 
 ### Pre-built executables
@@ -88,7 +90,7 @@ Write a pinned, URL-only MCP client config for an AI agent from the terminal:
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
 | --- | --- | --- | --- |
-| 9.3.2 (current) | 8.15.0 | 5.5.1 | engine plugins on McpPlugin 8.x |
+| 9.5.2 (current) | 8.23.0 | 5.5.2 | engine plugins on McpPlugin 8.x |
 | 9.2.4 (last 7.x) | 7.5.2 | 5.4.0 | engine plugins on McpPlugin 7.x |
 | 8.0.3 (legacy) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin 6.x |
 
@@ -97,6 +99,7 @@ Server releases `9.2.5` and newer build against McpPlugin 8.x; `9.0.0`–`9.2.4`
 ## Links
 
 - **Source & full documentation:** [github.com/IvanMurzak/GameDev-MCP-Server](https://github.com/IvanMurzak/GameDev-MCP-Server)
+- **Docs:** [Configuration](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md) · [Hosting and authentication](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/hosting.md) · [Compatibility](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/compatibility.md)
 - **Discord:** [discord.gg/cfbdMZX99G](https://discord.gg/cfbdMZX99G)
 
 ## License

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-label="GameDev MCP Server: one MCP server between AI agents and the Unity, Godot and Unreal editor plugins">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1020"/>
+      <stop offset="0.55" stop-color="#111a33"/>
+      <stop offset="1" stop-color="#1a1238"/>
+    </linearGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#67e8f9"/>
+      <stop offset="0.5" stop-color="#a5b4fc"/>
+      <stop offset="1" stop-color="#e879f9"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#8b5cf6" stop-opacity="0.5"/>
+      <stop offset="1" stop-color="#8b5cf6" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#06b6d4" stop-opacity="0.3"/>
+      <stop offset="1" stop-color="#06b6d4" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.045"/>
+    </pattern>
+    <clipPath id="frame"><rect width="1200" height="300" rx="20"/></clipPath>
+    <path id="pa" d="M870 150 L908 150"/>
+    <path id="pu" d="M1010 150 L1062 72"/>
+    <path id="pg" d="M1010 150 L1062 150"/>
+    <path id="pr" d="M1010 150 L1062 228"/>
+  </defs>
+  <style>
+    .sans { font-family: "Segoe UI", Inter, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif; }
+    .mono { font-family: "JetBrains Mono", "Cascadia Code", Consolas, Menlo, monospace; }
+    .ring { transform-origin: 960px 150px; animation: spin 30s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .pulse { transform-origin: 960px 150px; animation: pulse 3.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    .link { stroke-dasharray: 4 6; }
+    .fade { animation: in .9s ease-out both; }
+    .d1 { animation-delay: .1s; } .d2 { animation-delay: .35s; } .d3 { animation-delay: .6s; } .d4 { animation-delay: .85s; }
+    @keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .caret { animation: blink 1.1s steps(1) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+
+  <g clip-path="url(#frame)">
+    <rect width="1200" height="300" fill="url(#bg)"/>
+    <rect width="1200" height="300" fill="url(#grid)"/>
+    <circle cx="960" cy="150" r="220" fill="url(#glow)"/>
+    <circle cx="140" cy="280" r="200" fill="url(#glow2)"/>
+
+    <!-- left: title block -->
+    <g class="sans">
+      <g class="fade d1">
+        <rect x="64" y="44" width="300" height="28" rx="14" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.12"/>
+        <circle cx="82" cy="58" r="4" fill="#34d399"><animate attributeName="opacity" values="1;.3;1" dur="2s" repeatCount="indefinite"/></circle>
+        <text x="94" y="63" font-size="13" fill="#cbd5e1" letter-spacing=".4">MODEL CONTEXT PROTOCOL · .NET 9</text>
+      </g>
+      <text class="fade d2" x="62" y="128" font-size="52" font-weight="700" fill="url(#title)" letter-spacing="-1">GameDev MCP Server</text>
+      <text class="fade d3" x="64" y="166" font-size="21" fill="#cbd5e1">One MCP server for the Unity, Godot and Unreal</text>
+      <text class="fade d3" x="64" y="194" font-size="21" fill="#cbd5e1">editor plugins. No engine code inside.</text>
+      <g class="fade d4">
+        <rect x="64" y="220" width="580" height="44" rx="10" fill="#020617" fill-opacity="0.7" stroke="#334155"/>
+        <text class="mono" x="84" y="248" font-size="15" fill="#94a3b8">$ <tspan fill="#e2e8f0">dotnet tool install -g </tspan><tspan fill="#67e8f9">com.IvanMurzak.GameDev.MCP.Server</tspan></text>
+        <rect class="caret" x="616" y="233" width="8" height="18" fill="#67e8f9"/>
+      </g>
+    </g>
+
+    <!-- right: agent, server hub, engine plugins -->
+    <g fill="none" stroke-width="1.6">
+      <use href="#pa" class="link" stroke="#34d399" stroke-opacity=".8"/>
+      <use href="#pu" class="link" stroke="#67e8f9" stroke-opacity=".7"/>
+      <use href="#pg" class="link" stroke="#a5b4fc" stroke-opacity=".7"/>
+      <use href="#pr" class="link" stroke="#e879f9" stroke-opacity=".7"/>
+    </g>
+    <g>
+      <circle r="3.5" fill="#34d399"><animateMotion dur="1.6s" repeatCount="indefinite"><mpath href="#pa"/></animateMotion></circle>
+      <circle r="3.5" fill="#67e8f9"><animateMotion dur="2.2s" begin=".3s" repeatCount="indefinite"><mpath href="#pu"/></animateMotion></circle>
+      <circle r="3.5" fill="#a5b4fc"><animateMotion dur="2s" begin=".8s" repeatCount="indefinite"><mpath href="#pg"/></animateMotion></circle>
+      <circle r="3.5" fill="#e879f9"><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#pr"/></animateMotion></circle>
+    </g>
+
+    <circle class="ring" cx="960" cy="150" r="70" fill="none" stroke="#a5b4fc" stroke-opacity=".3" stroke-dasharray="2 10"/>
+    <g class="pulse">
+      <polygon points="960,98 1005,124 1005,176 960,202 915,176 915,124" fill="#0b1020" stroke="url(#core)" stroke-width="2.5"/>
+      <polygon points="960,112 993,131 993,169 960,188 927,169 927,131" fill="url(#core)" fill-opacity=".14"/>
+      <text class="mono" x="960" y="148" text-anchor="middle" font-size="15" font-weight="700" fill="#e2e8f0">MCP</text>
+      <text class="mono" x="960" y="167" text-anchor="middle" font-size="12" fill="#94a3b8">server</text>
+    </g>
+
+    <g class="sans" font-size="14" font-weight="600">
+      <g transform="translate(815 150)"><rect x="-55" y="-17" width="110" height="34" rx="17" fill="#0f172a" stroke="#34d399" stroke-opacity=".7"/><text y="5" text-anchor="middle" fill="#e2e8f0">AI agent</text></g>
+      <g transform="translate(1110 72)"><rect x="-48" y="-17" width="96" height="34" rx="17" fill="#0f172a" stroke="#67e8f9" stroke-opacity=".6"/><text y="5" text-anchor="middle" fill="#e2e8f0">Unity</text></g>
+      <g transform="translate(1110 150)"><rect x="-48" y="-17" width="96" height="34" rx="17" fill="#0f172a" stroke="#a5b4fc" stroke-opacity=".6"/><text y="5" text-anchor="middle" fill="#e2e8f0">Godot</text></g>
+      <g transform="translate(1110 228)"><rect x="-48" y="-17" width="96" height="34" rx="17" fill="#0f172a" stroke="#e879f9" stroke-opacity=".6"/><text y="5" text-anchor="middle" fill="#e2e8f0">Unreal</text></g>
+    </g>
+  </g>
+  <rect x=".5" y=".5" width="1199" height="299" rx="20" fill="none" stroke="#ffffff" stroke-opacity=".08"/>
+</svg>
