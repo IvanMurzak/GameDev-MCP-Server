@@ -81,7 +81,7 @@ The full list, logging and the `configure` command: [docs/configuration.md](docs
 - [Hosting and authentication](docs/hosting.md) — `none` / `token` / `oauth`, bind and Origin rules, Docker, sessions and Redis
 - [Compatibility](docs/compatibility.md) — server ↔ McpPlugin ↔ ReflectorNet versions and plugin-dependent behavior
 
-Current release **9.5.2** is built on McpPlugin.Server **8.23.0** and ReflectorNet **5.5.2**, for engine plugins on McpPlugin **8.x**.
+The [latest release](https://github.com/IvanMurzak/GameDev-MCP-Server/releases/latest) is built on McpPlugin.Server **8.x** and serves engine plugins on McpPlugin **8.x**; each release entry lists its exact McpPlugin and ReflectorNet pins.
 
 ## Build from source
 

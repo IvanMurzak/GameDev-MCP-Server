@@ -89,7 +89,7 @@ Write a pinned, URL-only MCP client config for an AI agent from the terminal: `g
 
 | GameDev-MCP-Server | McpPlugin.Server | ReflectorNet | Engine plugins |
 | --- | --- | --- | --- |
-| 9.5.2 (current) | 8.23.0 | 5.5.2 | engine plugins on McpPlugin 8.x |
+| 9.2.5 and newer ([latest release](https://github.com/IvanMurzak/GameDev-MCP-Server/releases/latest)) | 8.x | 5.x | engine plugins on McpPlugin 8.x |
 | 9.2.4 (last 7.x) | 7.5.2 | 5.4.0 | engine plugins on McpPlugin 7.x |
 | 8.0.3 (legacy) | 6.11.0 | 5.3.1 | engine plugins on McpPlugin 6.x |
 
