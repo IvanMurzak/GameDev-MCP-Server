@@ -31,14 +31,14 @@ gamedev-mcp-server --client-transport streamableHttp --port 8080 \
 
 # Self-hosted in Docker with one shared secret
 docker run -p 8080:8080 \
-  -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_PLUGIN_PORT=8080 -e MCP_BIND=any \
+  -e MCP_PLUGIN_CLIENT_TRANSPORT=streamableHttp -e MCP_BIND=any \
   -e MCP_AUTH=token -e MCP_PLUGIN_TOKEN=<secret> \
   aigamedeveloper/mcp-server
 ```
 
 ## Docker image
 
-[`aigamedeveloper/mcp-server`](https://hub.docker.com/r/aigamedeveloper/mcp-server) is published for `linux/amd64` and `linux/arm64` with the tags `<version>` and `latest`. It runs as a non-root user on a chiseled (distroless) .NET 9 base, has no shell, and exposes port `8080`. Configure it with the environment variables from [Configuration](configuration.md); remember `MCP_BIND=any`, otherwise the server listens only on the container's own loopback.
+[`aigamedeveloper/mcp-server`](https://hub.docker.com/r/aigamedeveloper/mcp-server) is published for `linux/amd64` and `linux/arm64` with the tags `<version>` and `latest`. It runs as a non-root user on a chiseled (distroless) .NET 9 base, has no shell, and exposes port `8080`. Configure it with the environment variables from [Configuration](configuration.md).
 
 ## Sessions and restarts
 

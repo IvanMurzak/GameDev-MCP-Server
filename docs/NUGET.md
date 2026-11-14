@@ -60,24 +60,17 @@ Download `gamedev-mcp-server-<rid>.zip` for Windows, Linux or macOS from [Releas
 
 ## Configuration
 
-CLI arguments override environment variables.
+Every option is an environment variable or a CLI argument (arguments win). The ones you will reach for:
 
-| Environment variable | CLI argument | Default | Description |
+| CLI argument | Environment variable | Default | Meaning |
 | --- | --- | --- | --- |
-| `MCP_PLUGIN_PORT` | `--port` | `8080` | Client to Server to Plugin connection port |
-| `MCP_PLUGIN_CLIENT_TIMEOUT` | `--plugin-timeout` | `10000` | Plugin to Server connection timeout (ms): one attempt of a catalog / prompt / resource request to the plugin. Tool calls do not use it (see `--tool-timeout`) |
-| `MCP_PLUGIN_TOOL_TIMEOUT` | `--tool-timeout` | `300000` (or `--plugin-timeout` if larger) | How long one tool call may run in the plugin (ms). A tool call is sent once and never re-sent |
-| `MCP_PLUGIN_CLIENT_TRANSPORT` | `--client-transport` | `stdio` | Client to Server transport: `stdio` or `streamableHttp` |
-| `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` | `--idle-timeout-seconds` | `28800` | streamableHttp idle-session eviction window (8h, so a local session survives a working day) |
-| `MCP_AUTH` | `--auth` | transport-dependent | Authentication mode: `none`, `token` or `oauth` (stdio -> none; http -> oauth when issuer + public-url set; `token` only when asked for) |
-| `MCP_PLUGIN_TOKEN` | `--token` | — | The shared secret of `token` mode, for streamableHttp AI clients and the engine plugin |
-| `REDIS_URL` | — | — | streamableHttp: sessions survive a server restart. Unset: a restart loses them, and clients get `404` / `-32001` and must re-initialize |
-| `MCP_AUTH_ISSUER` | `--auth-issuer` | — | OAuth authorization-server URL. Required for `oauth` |
-| `MCP_PUBLIC_URL` | `--public-url` | — | Canonical public URL / token audience. Required for `oauth` |
-| `MCP_BIND` | `--bind` | `loopback` | Bind address: `loopback`, `any` (0.0.0.0), or a specific IP |
-| `MCP_ALLOWED_ORIGINS` | `--allowed-origins` | — | Additional allowed browser Origins (comma/semicolon-separated) |
-| `MCP_SENTRY_DSN` / `MCP_SENTRY_ENVIRONMENT` | — | — | Opt-in crash reporting (Sentry-compatible, e.g. GlitchTip); unset = off |
-| `MCP_LOG_LEVEL` | — | `Info` | Log verbosity floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so it has no CLI equivalent |
+| `--port` | `MCP_PLUGIN_PORT` | `8080` | Port for AI clients and the engine plugin |
+| `--client-transport` | `MCP_PLUGIN_CLIENT_TRANSPORT` | `stdio` | `stdio` or `streamableHttp` |
+| `--tool-timeout` | `MCP_PLUGIN_TOOL_TIMEOUT` | `300000` | Max time for one tool call (ms) |
+| `--auth` | `MCP_AUTH` | by transport | `none`, `token` or `oauth` |
+| `--bind` | `MCP_BIND` | `loopback` | `loopback`, `any` or an IP |
+
+Every option, auth and logging: [Configuration](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md).
 
 In stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
 
