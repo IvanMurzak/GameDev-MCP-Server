@@ -70,7 +70,7 @@ Every option is an environment variable or a CLI argument (arguments win). The o
 | `--auth` | `MCP_AUTH` | by transport | `none`, `token` or `oauth` |
 | `--bind` | `MCP_BIND` | `loopback` | `loopback`, `any` or an IP |
 
-Every option, auth and logging: [Configuration](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md).
+More options: [Configuration](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md). Auth modes: [Hosting and authentication](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/hosting.md).
 
 In stdio mode console logging is redirected to stderr so stdout stays clean for the MCP JSON stream.
 

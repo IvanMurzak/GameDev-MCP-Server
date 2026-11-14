@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Hosting and authentication](hosting.md) · [Compatibility](compatibility.md)
 
-Every option can be set as a command-line argument or an environment variable (the option column lists both). **CLI arguments override environment variables.** Both `--port 8080` and `--port=8080` work.
+Each option below can be set as a command-line argument or an environment variable (the option column lists both). **CLI arguments override environment variables.** Both `--port 8080` and `--port=8080` work.
 
 ## Options
 
@@ -21,7 +21,7 @@ Every option can be set as a command-line argument or an environment variable (t
 | `--allowed-origins`<br>`MCP_ALLOWED_ORIGINS` | — | Extra allowed browser Origins, comma- or semicolon-separated (loopback and the `--public-url` origin are always allowed) |
 | `REDIS_URL` | — | streamable HTTP: keep sessions in Redis so they survive a restart — see [Sessions and restarts](hosting.md#sessions-and-restarts) |
 | `MCP_REDIS_KEY_PREFIX` | `mcp-server:` | Key namespace when several servers share one Redis |
-| `MCP_SESSION_MIGRATION_TTL_SECONDS` | idle window | How long a persisted session can be resumed after a restart |
+| `MCP_SESSION_MIGRATION_TTL_SECONDS` | idle timeout | How long a persisted session can be resumed after a restart. Never shorter than the idle timeout, which it reads from `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` only (`--idle-timeout-seconds` does not change it) |
 | `MCP_SSE_KEEPALIVE_SECONDS` | `30` | streamable HTTP: seconds of silence before a keep-alive comment is sent on the standalone SSE stream, so idle clients and proxies keep it open. `0` turns it off |
 | `MCP_SENTRY_DSN` / `MCP_SENTRY_ENVIRONMENT` | — | Opt-in crash reporting to a Sentry-compatible endpoint: unhandled exceptions only, no PII. Unset = off |
 | `MCP_LOG_LEVEL` | `Info` | Log level floor: `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal`. Read by NLog, so it has no CLI argument |

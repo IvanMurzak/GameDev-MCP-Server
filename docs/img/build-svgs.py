@@ -1,7 +1,7 @@
 """Regenerate the README images in docs/img/ with the shared svgkit style: py -3 docs/img/build-svgs.py
 
-The terminal shows real output of gamedev-mcp-server 9.5.2 (port shown as 8080; the configure run used a
-throwaway ~/my-game folder, so its pin and port are just an example).
+The terminal shows abridged output of gamedev-mcp-server (port shown as 8080; the configure run used a
+throwaway ~/my-game folder, so its pin is just an example).
 """
 import os, sys
 
@@ -48,12 +48,12 @@ K.write(os.path.join(HERE, "architecture.svg"), K.panel(1200, 470, body,
         "An AI agent talks MCP over stdio or HTTP to gamedev-mcp-server, which forwards each call over SignalR "
         "to the Unity-MCP, Godot-MCP or Unreal-MCP plugin"))
 
-K.write(os.path.join(HERE, "terminal.svg"), K.terminal(title="~/my-game — gamedev-mcp-server 9.5.2", lines=[
+K.write(os.path.join(HERE, "terminal.svg"), K.terminal(title="~/my-game — gamedev-mcp-server", lines=[
     {"cmd": "gamedev-mcp-server --client-transport streamableHttp --port 8080"},
     {"out": [("muted", "Parsed arguments: { "), ("key", '"Port"'), ("muted", ": "), ("num", "8080"), ("muted", ", "),
              ("key", '"ClientTransport"'), ("muted", ": "), ("str", '"streamableHttp"'), ("muted", ", … }")]},
     {"out": [("ok", "info: "), ("text", "Start listening on port: 8080 (bind: loopback)")]},
-    {"out": [("ok", "info: "), ("text", "MCP auth mode: none (transport: streamableHttp, bind: loopback).")], "note": "plugin connects"},
+    {"out": [("ok", "info: "), ("text", "MCP auth mode: none (transport: streamableHttp, bind: loopback).")]},
     {"cmd": "gamedev-mcp-server configure --agent claude-code"},
     {"out": [("ok", "Configured Claude Code (claude-code).")]},
     {"out": [("muted", "  transport : "), ("text", "streamableHttp")]},

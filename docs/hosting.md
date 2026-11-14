@@ -46,7 +46,7 @@ An MCP session lives in the server process. What a streamable HTTP client sees a
 
 | | With `REDIS_URL` | Without |
 | --- | --- | --- |
-| The session | Survives for the migration-record lifetime (`MCP_SESSION_MIGRATION_TTL_SECONDS`, default the idle window, 8 h): the same session id keeps working for the user who created it | **Lost** |
+| The session | Survives for the migration-record lifetime (`MCP_SESSION_MIGRATION_TTL_SECONDS`, by default the `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` window, 8 h): the same session id keeps working for the user who created it | **Lost** |
 | The client's next request | Works | `404` with JSON-RPC error `-32001` (`Session not found`) |
 | What the client must do | Nothing within that lifetime; after it, or while Redis is down, as in the other column | Start a new session with `initialize` |
 | The catalog | The first standalone GET stream of the restored session gets one `list_changed` per capability that declares it: list again | A new session lists it anyway |

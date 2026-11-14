@@ -73,7 +73,7 @@ Every option is an environment variable or a CLI argument (arguments win). The o
 | `--auth` | `MCP_AUTH` | by transport | `none`, `token` or `oauth` |
 | `--bind` | `MCP_BIND` | `loopback` | `loopback`, `any` or an IP |
 
-The full list, logging and the `configure` command: [docs/configuration.md](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md).
+More options, logging and the `configure` command: [docs/configuration.md](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/configuration.md).
 
 ## Documentation
 
@@ -81,7 +81,7 @@ The full list, logging and the `configure` command: [docs/configuration.md](http
 - [Hosting and authentication](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/hosting.md) — `none` / `token` / `oauth`, bind and Origin rules, Docker, sessions and Redis
 - [Compatibility](https://github.com/IvanMurzak/GameDev-MCP-Server/blob/main/docs/compatibility.md) — server ↔ McpPlugin ↔ ReflectorNet versions and plugin-dependent behavior
 
-The [latest release](https://github.com/IvanMurzak/GameDev-MCP-Server/releases/latest) is built on McpPlugin.Server **8.x** and serves engine plugins on McpPlugin **8.x**; each release entry lists its exact McpPlugin and ReflectorNet pins.
+Each [release](https://github.com/IvanMurzak/GameDev-MCP-Server/releases) entry lists its exact McpPlugin and ReflectorNet pins.
 
 ## Build from source
 

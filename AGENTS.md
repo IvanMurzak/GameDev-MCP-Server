@@ -36,15 +36,15 @@ dotnet run --project com.IvanMurzak.GameDev.MCP.Server.csproj -- --client-transp
 ## Versioning / releases
 
 - `<Version>` in the csproj + `server.json` move together. Keep the McpPlugin.Server / ReflectorNet
-  pins in lockstep with the engine plugins (Compatibility table in README.md).
+  pins in lockstep with the engine plugins (Compatibility table in `docs/compatibility.md`).
 - Between test waves McpPlugin is integrated unreleased: `<version>-dev.<sha>` packages committed under
   `prerelease-packages/`, fed to every restore by `Directory.Build.props` (and copied by the Dockerfile).
   Before a release, pin published versions, delete both, and drop their Dockerfile COPY lines and the
   `.gitignore` exception: `release.yml` FAILS first (dry runs too) while any pin is a pre-release or
   not on nuget.org, or a local feed is wired in (`scripts/release_dependency_guard.py`).
 - **NuGet readme is `docs/NUGET.md`, NOT the root README** (whose GitHub HTML NuGet's sanitizer
-  mangles); the csproj packs it as `README.md`. Keep its versions/compatibility table in sync with the
-  root README on each release. A readme fix shows on nuget.org only after a **new version** is published.
+  mangles); the csproj packs it as `README.md`. Keep its compatibility table in sync with
+  `docs/compatibility.md` on each release. A readme fix shows on nuget.org only after a **new version** is published.
 - **Release = manual dispatch of `.github/workflows/release.yml` ONLY**
   (`gh workflow run release.yml -R IvanMurzak/GameDev-MCP-Server --ref main -f dry_run=false`).
   Merging a version bump publishes nothing; nothing listens for GitHub `release` events. Order: guard
