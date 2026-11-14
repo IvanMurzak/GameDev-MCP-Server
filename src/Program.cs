@@ -246,7 +246,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 app.Logger.LogWarning(
                     "streamableHttp is running WITHOUT authentication (auth=none) because --auth-issuer/--public-url "
                     + "were not configured. For a network-exposed deployment set --auth oauth with --auth-issuer and "
-                    + "--public-url (see README § Authentication). Pass --auth none explicitly to silence this warning.");
+                    + "--public-url (see docs/hosting.md § Authentication). Pass --auth none explicitly to silence this warning.");
             }
 
             app.Logger.LogInformation(
