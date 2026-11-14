@@ -25,7 +25,7 @@ def hero_right():
 K.write(os.path.join(HERE, "hero.svg"), K.hero(
     title="GameDev ", accent="MCP Server", eyebrow_text="AI Game Developer",
     subtitle=["One MCP server for the Unity, Godot", "and Unreal editor plugins."],
-    chip_items=[".NET 9", "stdio", "HTTP", "Docker"], right=hero_right(),
+    chip_items=[".NET 9", "stdio", "HTTP", "Docker"], right=hero_right(), accent_fx="flow",
     label="GameDev MCP Server: one MCP server between AI agents and the Unity, Godot and Unreal editor plugins"))
 
 body = (K.eyebrow(190, 64, "MCP client", "middle") + K.eyebrow(600, 64, "This repository", "middle")
