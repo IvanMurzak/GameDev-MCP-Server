@@ -38,7 +38,7 @@ docker run -p 8080:8080 \
 
 ## Docker image
 
-[`aigamedeveloper/mcp-server`](https://hub.docker.com/r/aigamedeveloper/mcp-server) is published for `linux/amd64` and `linux/arm64` with the tags `<version>` and `latest`. It runs as a non-root user on a chiseled (distroless) .NET 9 base, has no shell, and exposes port `8080`. Configure it with the environment variables from [Configuration](configuration.md).
+[`aigamedeveloper/mcp-server`](https://hub.docker.com/r/aigamedeveloper/mcp-server) is published for `linux/amd64` and `linux/arm64` with the tags `<version>` and `latest`. It runs as a non-root user on a chiseled (distroless) .NET 10 base, has no shell, and exposes port `8080`. Configure it with the environment variables from [Configuration](configuration.md).
 
 ## Sessions and restarts
 

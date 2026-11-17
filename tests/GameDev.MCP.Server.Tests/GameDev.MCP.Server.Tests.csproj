@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <!-- Matches the TFM of the host project (com.IvanMurzak.GameDev.MCP.Server.csproj). -->
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <IsPackable>false</IsPackable>
