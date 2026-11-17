@@ -76,7 +76,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             };
 
         static string Body(HttpContext context)
-            => Encoding.UTF8.GetString(((MemoryStream)context.Features.Get<IHttpResponseBodyFeature>()!.Stream).ToArray());
+            => Encoding.UTF8.GetString(((MemoryStream)context.Response.Body).ToArray());
 
         internal static void AssertSessionNotFound(JsonNode? message, int id)
         {

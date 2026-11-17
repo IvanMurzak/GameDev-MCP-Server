@@ -23,7 +23,7 @@ RUN mkdir -p /app/publish/logs
 
 # Runtime stage — chiseled (distroless) base: no shell, no apt, no perl/pam/tar,
 # runs as a non-root user. This drops the debian-bookworm OS-package CVEs that the
-# full aspnet:9.0 (Debian) base carried. The *-extra variant still ships ICU + tzdata, so
+# full aspnet:9.0 base carried. The *-extra variant still ships ICU + tzdata, so
 # globalization keeps working with no application change.
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
