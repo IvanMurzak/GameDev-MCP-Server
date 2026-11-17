@@ -2,7 +2,7 @@
 # for more information about using .NET with Docker.
 
 # Build stage
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Copy main project file
@@ -25,7 +25,7 @@ RUN mkdir -p /app/publish/logs
 # runs as a non-root user. This drops the debian-bookworm OS-package CVEs that the
 # full aspnet:9.0 base carried. The *-extra variant still ships ICU + tzdata, so
 # globalization keeps working with no application change.
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-noble-chiseled-extra AS final
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra AS final
 WORKDIR /app
 # The app user in the chiseled images is UID/GID 1654 (APP_UID). Own the app tree
 # (including logs/) so the non-root process can write NLog files.
