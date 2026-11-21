@@ -19,6 +19,7 @@ Each option below can be set as a command-line argument or an environment variab
 | `--public-url`<br>`MCP_PUBLIC_URL` | — | This server's canonical public URL (the token audience). Required for `oauth`; also added to the Origin allow-list |
 | `--bind`<br>`MCP_BIND` | `loopback` | Listen address: `loopback`, `any` (0.0.0.0), or a specific IP |
 | `--allowed-origins`<br>`MCP_ALLOWED_ORIGINS` | — | Extra allowed browser Origins, comma- or semicolon-separated (loopback and the `--public-url` origin are always allowed) |
+| `--instructions-file`<br>`MCP_INSTRUCTIONS_FILE` | — | UTF-8 file whose text the server returns as the MCP `instructions` of `initialize` (shown to the model at session start, also when the client loads tools on demand); the engine plugin that starts the server sets it. Missing or empty: no instructions; cut at 8192 characters |
 | `REDIS_URL` | — | streamable HTTP: keep sessions in Redis so they survive a restart — see [Sessions and restarts](hosting.md#sessions-and-restarts) |
 | `MCP_REDIS_KEY_PREFIX` | `mcp-server:` | Key namespace when several servers share one Redis |
 | `MCP_SESSION_MIGRATION_TTL_SECONDS` | idle timeout | How long a persisted session can be resumed after a restart. Never shorter than the idle timeout, which it reads from `MCP_PLUGIN_IDLE_TIMEOUT_SECONDS` only (`--idle-timeout-seconds` does not change it) |

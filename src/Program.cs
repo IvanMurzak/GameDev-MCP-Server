@@ -168,6 +168,18 @@ namespace com.IvanMurzak.GameDev.MCP.Server
                 logger.Info($"Origin allow-list extended with {originOptions.AllowedOrigins.Count} configured origin(s) (plus loopback).");
             }
 
+            // MCP instructions from the engine plugin that started this server (ServerInstructions): shown to the model at
+            // session start, also when the client loads the tools on demand.
+            var instructions = ServerInstructions.Load(
+                ServerInstructions.ResolvePath(parsedArgs, Environment.GetEnvironmentVariable), out var instructionsError);
+            if (instructions != null)
+            {
+                builder.Services.PostConfigure<McpServerOptions>(options => options.ServerInstructions = instructions);
+                logger.Info($"MCP instructions set ({instructions.Length} characters).");
+            }
+            else if (instructionsError != null)
+                logger.Warn($"MCP instructions file not read: {instructionsError}");
+
             // Issue #70 — Option B: when REDIS_URL is set, plug Redis into the SDK's
             // session-migration + SSE event-store hooks so sessions survive a restart.
             // When unset, the server skips the registrations and behaves as before
