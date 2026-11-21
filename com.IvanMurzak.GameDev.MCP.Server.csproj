@@ -13,7 +13,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>gamedev-mcp-server</ToolCommandName>
     <PackageId>com.IvanMurzak.GameDev.MCP.Server</PackageId>
-    <Version>9.5.5</Version>
+    <Version>9.6.0</Version>
     <Authors>Ivan Murzak</Authors>
     <Company>Ivan Murzak</Company>
     <Copyright>Copyright © 2026 Ivan Murzak</Copyright>
@@ -74,7 +74,7 @@
     the pre-release feed (prerelease-packages/, Directory.Build.props, Dockerfile COPY) is gone again.
   -->
   <ItemGroup Condition="'$(UseLocalMcpPlugin)' != 'true'">
-    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.5.3" />
+    <PackageReference Include="com.IvanMurzak.ReflectorNet" Version="5.6.0" />
     <PackageReference Include="com.IvanMurzak.McpPlugin.Server" Version="8.25.0" />
     <!--
       Base McpPlugin package: the McpPlugin.Server package does NOT depend on it, but it hosts the
