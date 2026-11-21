@@ -37,6 +37,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
             Assert.Equal("/from/arg.md", ServerInstructions.ResolvePath(args, _ => "/from/env.md"));
             Assert.Equal("/from/env.md", ServerInstructions.ResolvePath(new Dictionary<string, string>(), _ => "/from/env.md"));
             Assert.Null(ServerInstructions.ResolvePath(new Dictionary<string, string>(), _ => " "));
+            Assert.Null(ServerInstructions.ResolvePath(new Dictionary<string, string> { [ServerInstructions.ArgName] = "" }, _ => "/from/env.md"));
         }
 
         [Fact]

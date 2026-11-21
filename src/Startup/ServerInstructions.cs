@@ -29,11 +29,11 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Startup
         /// <summary>Upper bound kept in the handshake (clients cut long instructions anyway: Claude Code at 4096 characters).</summary>
         public const int MaxChars = 8192;
 
-        /// <summary>The file named by the argument (wins) or the environment variable; null when neither is set.</summary>
+        /// <summary>The file named by the argument (wins, also when empty) or the environment variable; null when there is none.</summary>
         public static string? ResolvePath(IReadOnlyDictionary<string, string> parsedArgs, Func<string, string?> getEnv)
         {
-            if (parsedArgs.TryGetValue(ArgName, out var arg) && !string.IsNullOrWhiteSpace(arg))
-                return arg.Trim();
+            if (parsedArgs.TryGetValue(ArgName, out var arg))
+                return string.IsNullOrWhiteSpace(arg) ? null : arg.Trim(); // an explicit empty argument turns them off
             var env = getEnv(EnvVar);
             return string.IsNullOrWhiteSpace(env) ? null : env.Trim();
         }
