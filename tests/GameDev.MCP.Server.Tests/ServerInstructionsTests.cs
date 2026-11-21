@@ -23,7 +23,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
 {
     public class ServerInstructionsTests
     {
-        static string TempFile(string text)
+        internal static string TempFile(string text)
         {
             var path = Path.Combine(Path.GetTempPath(), $"mcp-instructions-{Guid.NewGuid():N}.md");
             File.WriteAllText(path, text);
@@ -93,8 +93,7 @@ namespace com.IvanMurzak.GameDev.MCP.Server.Tests
         [Fact]
         public async Task Initialize_returns_the_instructions_of_the_file()
         {
-            var path = Path.Combine(Path.GetTempPath(), $"mcp-instructions-{Guid.NewGuid():N}.md");
-            File.WriteAllText(path, "Play-test inside the editor.");
+            var path = ServerInstructionsTests.TempFile("Play-test inside the editor.");
             try
             {
                 await using var server = await ServerHarness.StartAsync($"--{ServerInstructions.ArgName}={path}");
