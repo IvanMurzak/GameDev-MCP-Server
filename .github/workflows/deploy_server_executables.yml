@@ -159,7 +159,7 @@ jobs:
           CURRENT_COUNT=0
           LIST="$(security list-keychains -d user)"
           while IFS= read -r kc; do
-            kc="$(printf '%s' "$kc" | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+            kc="${kc#*\"}"; kc="${kc%\"*}"  # strip the indent and quotes
             [ -n "$kc" ] || continue
             [ "$kc" != "$KC" ] || continue
             CURRENT+=("$kc")
@@ -294,7 +294,7 @@ jobs:
             FOUND=false
             LIST="$(security list-keychains -d user)"
             while IFS= read -r kc; do
-              kc="$(printf '%s' "$kc" | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')"
+              kc="${kc#*\"}"; kc="${kc%\"*}"  # strip the indent and quotes
               [ -n "$kc" ] || continue
               if [ "$kc" = "$KC" ]; then FOUND=true; continue; fi
               KEEP+=("$kc")
