@@ -19,8 +19,8 @@
 # secrets are provisioned.
 #
 # Platform split:
-#   - macos-latest job  -> osx-x64, osx-arm64 (codesign + notarytool),
-#                          plus linux-x64, linux-arm64 (unsigned, cross-built).
+#   - self-hosted Mac job -> osx-x64, osx-arm64 (codesign + notarytool),
+#                            plus linux-x64, linux-arm64 (unsigned, cross-built).
 #   - windows-latest job -> win-x64, win-x86, win-arm64 (Azure Trusted Signing).
 # signtool cannot run on macOS, so the Windows RIDs need their own runner.
 #
@@ -55,11 +55,23 @@ permissions:
 jobs:
   # ────────────────────────────────────────────────────────────────────
   # macOS + Linux: osx-x64, osx-arm64 (signed + notarized), linux-x64,
-  # linux-arm64 (unsigned). Built on macos-latest, which cross-builds the
-  # linux RIDs fine.
+  # linux-arm64 (unsigned). Cross-builds the linux RIDs fine.
+  #
+  # RUNNER: the owner's own Mac (`[self-hosted, macOS, ARM64]`, placed by
+  # runner-manager's coordinator; AI-Game-Dev-App's macOS jobs use the same
+  # labels, its signing jobs add `not-weak`). GitHub-hosted macOS arm64 runners repeatedly could not be
+  # acquired ("capacity constraints"). The Mac is PERSISTENT and is the
+  # owner's daily machine, so every step here must leave it as it found it:
+  #   - the .NET SDK, NuGet packages and dotnet CLI home live in RUNNER_TEMP,
+  #     never in the user's home or system;
+  #   - the signing keychain is temporary, its password random per run, and
+  #     the "Clean up signing keychain" step (`always()`) deletes it and takes
+  #     its entry back off the user keychain search list;
+  #   - decoded secrets (.p12, .p8) live in RUNNER_TEMP with umask 077 and are
+  #     removed again, on failure too.
   # ────────────────────────────────────────────────────────────────────
   build-macos-linux:
-    runs-on: macos-latest
+    runs-on: [self-hosted, macOS, ARM64]
     timeout-minutes: 90
     # Job-level env so the signing/notarization guards (`if: env.X != ''`) can
     # read these. A step's own `env:` block is NOT visible to that same step's
@@ -76,11 +88,29 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
+      # The SDK, the NuGet package cache (runtime packs for 4 RIDs, hundreds of
+      # MB) and the CLI's first-run files default to the user's home; keep them
+      # in RUNNER_TEMP. A job-level `env:` cannot read `runner.temp`, hence
+      # GITHUB_ENV.
+      - name: Keep .NET state in the runner temp directory
+        run: |
+          {
+            echo "NUGET_PACKAGES=$RUNNER_TEMP/nuget-packages"
+            echo "DOTNET_CLI_HOME=$RUNNER_TEMP/dotnet-home"
+            echo "DOTNET_CLI_TELEMETRY_OPTOUT=1"
+            echo "DOTNET_NOLOGO=1"
+          } >> "$GITHUB_ENV"
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.temp }}/dotnet
         with:
           dotnet-version: "10.0.x"
 
+      # `python3` is the Xcode Command Line Tools interpreter (3.9), which this
+      # job needs anyway for codesign / xcrun notarytool. build_all.py is
+      # stdlib-only and supports 3.9+.
       - name: Build executables (osx + linux, no zip yet)
         run: python3 build/build_all.py Release --no-zip osx-x64 osx-arm64 linux-x64 linux-arm64
 
@@ -90,42 +120,138 @@ jobs:
       # whole sign+notarize path cleanly rather than dying under `set -e` and
       # taking the unsigned-upload fallback down with it. Result: missing or
       # partial mac secrets => unsigned-but-green release is still produced.
+      #
+      # Ported from AI-Game-Dev-App release.yml "Prepare signing keychain",
+      # which is measured on this Mac:
+      #   - import with `-A` and NO `set-key-partition-list`: macOS 26+ refuses
+      #     that call from the runner's non-interactive context. `-A` lets any
+      #     process of this user sign with the key while the keychain is
+      #     unlocked and listed; the keychain holds only this certificate and
+      #     is deleted by the cleanup step at the end of the job. Unlike the
+      #     App's single-repository runner, this Mac's runners serve several
+      #     repositories concurrently, so that window is open to their jobs
+      #     too (an owner-accepted trade-off; see the PR that added this);
+      #   - our keychain is PREPENDED to the user search list, never replacing
+      #     it: `list-keychains -s` REPLACES the list, and dropping the login
+      #     keychain is persistent damage. codesign also needs the login
+      #     keychain listed to build the Developer ID chain (measured);
+      #   - signing goes by the certificate's SHA-1 within OUR keychain: the
+      #     owner's login keychain holds another certificate with the same
+      #     display name, so signing by name is ambiguous there.
       - name: Import macOS signing certificate
         if: ${{ env.MAC_CSC_LINK != '' && env.MAC_CSC_KEY_PASSWORD != '' && env.MAC_SIGN_IDENTITY != '' }}
         run: |
           set -euo pipefail
-          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
-          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
-          CERT_PATH="$RUNNER_TEMP/certificate.p12"
+          # The decoded .p12 and the keychain must not be world-readable on
+          # the owner's machine (the default umask 022 would make them 0644).
+          umask 077
+          # Must match the literal in "Clean up signing keychain".
+          KC="$RUNNER_TEMP/gdms-signing.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/gdms-certificate.p12"
+          # No pipe (`tr </dev/urandom | head`), so no SIGPIPE under pipefail.
+          KCPASS="$(openssl rand -hex 32)"
 
-          echo "$MAC_CSC_LINK" | base64 --decode > "$CERT_PATH"
+          # A keychain left by a run that died before its cleanup (reboot,
+          # runner restart): delete it so create-keychain does not fail.
+          if [ -e "$KC" ]; then
+            security delete-keychain "$KC" || rm -f "$KC"
+          fi
 
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security import "$CERT_PATH" -P "$MAC_CSC_KEY_PASSWORD" \
-            -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
-          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
-          security set-key-partition-list -S apple-tool:,apple: \
-            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" >/dev/null
+          printf '%s' "$MAC_CSC_LINK" | base64 --decode > "$CERT_PATH"
 
+          security create-keychain -p "$KCPASS" "$KC"
+          # Lock after 6h idle as a backstop; NOT `-l` (lock on sleep): the Mac
+          # can sleep mid-build.
+          security set-keychain-settings -u -t 21600 "$KC"
+          security unlock-keychain -p "$KCPASS" "$KC"
+          security import "$CERT_PATH" -k "$KC" -P "$MAC_CSC_KEY_PASSWORD" -A -f pkcs12
           rm -f "$CERT_PATH"
-          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+          # Read the CURRENT list into an array (bash 3.2 on macOS: no mapfile;
+          # the counter avoids expanding an empty array under `set -u`), drop
+          # any stale entry for our own path, and prepend ours.
+          CURRENT=()
+          CURRENT_COUNT=0
+          LIST="$(security list-keychains -d user)"
+          while IFS= read -r kc; do
+            kc="${kc#*\"}"; kc="${kc%\"*}"  # strip the indent and quotes
+            [ -n "$kc" ] || continue
+            [ "$kc" != "$KC" ] || continue
+            CURRENT+=("$kc")
+            CURRENT_COUNT=$((CURRENT_COUNT + 1))
+          done <<< "$LIST"
+          # An unreadable list (e.g. a runner running as root, which has no
+          # user keychain list) must not become a one-entry list: `security`
+          # would report that as success and the damage would persist.
+          if [ "$CURRENT_COUNT" -eq 0 ]; then
+            echo "::error::Could not read the user keychain search list — refusing to modify it"
+            exit 1
+          fi
+          security list-keychains -d user -s "$KC" "${CURRENT[@]}"
+
+          # Resolve MAC_SIGN_IDENTITY (a name or a SHA-1) to the SHA-1 of the
+          # matching identity in OUR keychain, so codesign cannot pick the
+          # same-named certificate from the login keychain. Capture once and
+          # match the text: `security … | grep -q` is a SIGPIPE trap.
+          IDENTITIES="$(security find-identity -v -p codesigning "$KC")"
+          printf '%s\n' "$IDENTITIES"
+          SIGN_HASH=""
+          while IFS= read -r line; do
+            case "$line" in
+              *"$MAC_SIGN_IDENTITY"*)
+                SIGN_HASH="$(printf '%s\n' "$line" | sed -n 's/^ *[0-9][0-9]*) \([0-9A-F]\{40\}\) .*/\1/p')"
+                [ -z "$SIGN_HASH" ] || break
+                ;;
+            esac
+          done <<< "$IDENTITIES"
+          if [ -z "$SIGN_HASH" ]; then
+            echo "::error::No codesigning identity matching MAC_SIGN_IDENTITY in the imported certificate"
+            exit 1
+          fi
+          echo "signing identity hash: $SIGN_HASH"
+
+          echo "KEYCHAIN_PATH=$KC" >> "$GITHUB_ENV"
+          echo "SIGN_HASH=$SIGN_HASH" >> "$GITHUB_ENV"
 
       # Same all-three-secrets guard as the import step: never reach `codesign
-      # --sign "$MAC_SIGN_IDENTITY"` with an empty identity (which would fail
-      # under `set -e` and sink the whole job, including the unsigned upload).
+      # --sign` without an imported identity (which would fail under `set -e`
+      # and sink the whole job, including the unsigned upload).
       - name: Code-sign macOS executables (hardened runtime)
         if: ${{ env.MAC_CSC_LINK != '' && env.MAC_CSC_KEY_PASSWORD != '' && env.MAC_SIGN_IDENTITY != '' }}
         run: |
           set -euo pipefail
+          # codesign builds the certificate chain only from keychains on the
+          # search list. A concurrent job on this Mac that writes back an older
+          # snapshot of the list can drop our entry, so put it back if needed.
+          LIST="$(security list-keychains -d user)"
+          case "$LIST" in
+            *"\"$KEYCHAIN_PATH\""*) ;;
+            *)
+              echo "::warning::signing keychain fell off the user search list; prepending it again"
+              CURRENT=()
+              CURRENT_COUNT=0
+              while IFS= read -r kc; do
+                kc="${kc#*\"}"; kc="${kc%\"*}"  # strip the indent and quotes
+                [ -n "$kc" ] || continue
+                CURRENT+=("$kc")
+                CURRENT_COUNT=$((CURRENT_COUNT + 1))
+              done <<< "$LIST"
+              if [ "$CURRENT_COUNT" -eq 0 ]; then
+                echo "::error::Could not read the user keychain search list — refusing to modify it"
+                exit 1
+              fi
+              security list-keychains -d user -s "$KEYCHAIN_PATH" "${CURRENT[@]}"
+              ;;
+          esac
+
           ENTITLEMENTS="build/entitlements.mac.plist"
           for rid in osx-x64 osx-arm64; do
             BIN="publish/${rid}/gamedev-mcp-server"
             echo "Signing ${BIN}..."
             codesign --force --options runtime --timestamp \
               --entitlements "$ENTITLEMENTS" \
-              --sign "$MAC_SIGN_IDENTITY" "$BIN"
+              --keychain "$KEYCHAIN_PATH" \
+              --sign "$SIGN_HASH" "$BIN"
             codesign --verify --strict --verbose=2 "$BIN"
           done
 
@@ -143,8 +269,11 @@ jobs:
         if: ${{ env.MAC_CSC_LINK != '' && env.MAC_CSC_KEY_PASSWORD != '' && env.MAC_SIGN_IDENTITY != '' && env.APPLE_API_KEY_B64 != '' }}
         run: |
           set -euo pipefail
-          KEY_PATH="$RUNNER_TEMP/AuthKey.p8"
-          echo "$APPLE_API_KEY_B64" | base64 --decode > "$KEY_PATH"
+          # Unencrypted private key on the owner's machine: owner-only, and
+          # the cleanup step removes it if this step fails before its `rm`.
+          umask 077
+          KEY_PATH="$RUNNER_TEMP/gdms-AuthKey.p8"
+          printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$KEY_PATH"
 
           for rid in osx-x64 osx-arm64; do
             ZIP="publish/gamedev-mcp-server-${rid}.zip"
@@ -178,6 +307,61 @@ jobs:
           path: ./publish/*.zip
           if-no-files-found: error
           retention-days: 1
+
+      # The keychain FILE lives in RUNNER_TEMP, but the user keychain SEARCH
+      # LIST is persistent state on the owner's Mac: without this step every
+      # run would leave an entry pointing at a deleted keychain. `always()` so
+      # a failed or cancelled-mid-step build still leaves the runner clean.
+      #
+      # Removes ONLY this job's entry from the CURRENT list instead of
+      # restoring a snapshot taken at import time: several runners share the
+      # one user search list on that Mac, so writing back an old snapshot
+      # would drop (or resurrect) another concurrent job's keychain.
+      - name: Clean up signing keychain
+        if: always()
+        run: |
+          set -euo pipefail
+          # Must match the literal in "Import macOS signing certificate".
+          KC="$RUNNER_TEMP/gdms-signing.keychain-db"
+
+          # Unsigned build: the import step never created a keychain.
+          if [ -e "$KC" ]; then
+            # Array + counter: /bin/bash on macOS is 3.2 (no mapfile, and an
+            # empty array expansion is an unbound-variable error under -u).
+            KEEP=()
+            KEEP_COUNT=0
+            FOUND=false
+            # A failed read yields an empty list, which the guard below
+            # leaves untouched; the keychain itself is still deleted.
+            LIST="$(security list-keychains -d user)" || LIST=""
+            while IFS= read -r kc; do
+              kc="${kc#*\"}"; kc="${kc%\"*}"  # strip the indent and quotes
+              [ -n "$kc" ] || continue
+              if [ "$kc" = "$KC" ]; then FOUND=true; continue; fi
+              KEEP+=("$kc")
+              KEEP_COUNT=$((KEEP_COUNT + 1))
+            done <<< "$LIST"
+            if [ "$FOUND" != true ]; then
+              echo "This job's keychain is not on the user search list — list left unchanged."
+            elif [ "$KEEP_COUNT" -eq 0 ]; then
+              # Setting an EMPTY list would succeed silently and wipe the
+              # owner's login keychain from it — never do that.
+              echo "::warning::the user keychain search list holds only this job's keychain; leaving it unchanged"
+            else
+              security list-keychains -d user -s "${KEEP[@]}" \
+                || echo "::warning::failed to remove $KC from the user keychain search list"
+            fi
+            security delete-keychain "$KC" || echo "::warning::failed to delete $KC"
+          fi
+
+          # Decoded secrets are removed by their own steps on success; this
+          # covers a failure in between. `|| true`: a stray temp-file error
+          # must not fail an otherwise good release.
+          rm -f "$RUNNER_TEMP/gdms-certificate.p12" "$RUNNER_TEMP/gdms-AuthKey.p8" || true
+
+          # Printing the result is what turns a green cleanup into evidence.
+          echo "user keychain search list after cleanup:"
+          security list-keychains -d user || true
 
   # ────────────────────────────────────────────────────────────────────
   # Windows: win-x64, win-x86, win-arm64. Signed with Azure Trusted Signing
